@@ -5,9 +5,9 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import {
-  codexExitCode,
-  handleCodexPayload,
-} from "./adapters/codex.mjs";
+  handleTraePayload,
+  traeExitCode,
+} from "./adapters/trae.mjs";
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -27,8 +27,8 @@ function readStdin() {
   });
 }
 
-export const handle = handleCodexPayload;
-export const hookExitCode = codexExitCode;
+export const handle = handleTraePayload;
+export const hookExitCode = traeExitCode;
 
 const executedPath = process.argv[1]
   ? pathToFileURL(process.argv[1]).href
@@ -40,7 +40,7 @@ if (executedPath === import.meta.url) {
     process.exitCode = hookExitCode(result);
   } catch (error) {
     process.stdout.write(
-      `${JSON.stringify({ continue: false, stopReason: error.message })}\n`,
+      `${JSON.stringify({ version: 1, decision: "stop", reason: error.message })}\n`,
     );
     process.exitCode = 1;
   }

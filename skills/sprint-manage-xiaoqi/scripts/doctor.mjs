@@ -8,9 +8,15 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-const REQUIRED_HOOK_EVENTS = ["SessionStart", "PreToolUse", "PostToolUse", "Stop"];
-const HOOK_COMMAND =
-  "node skills/sprint-manage-xiaoqi/scripts/codex-hook.mjs";
+const RUNTIME_FILES = [
+  "generic-hook.mjs",
+  "lifecycle.mjs",
+  "ledger-lock.mjs",
+  "advance-progress.mjs",
+  "validate-progress.mjs",
+  "guarded-run.mjs",
+];
+const RUNTIME_DIRECTORIES = ["core", "policies"];
 
 function check(status, message, detail = undefined) {
   return { status, message, ...(detail ? { detail } : {}) };
@@ -23,14 +29,18 @@ function defaultCommandRunner(projectRoot) {
         return execFileSync(
           "powershell.exe",
           ["-NoProfile", "-Command", `openspec ${args.join(" ")}`],
-          { cwd: projectRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+          {
+            cwd: projectRoot,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+          },
         );
       }
-      return execFileSync(
-        "openspec",
-        args,
-        { cwd: projectRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-      );
+      return execFileSync("openspec", args, {
+        cwd: projectRoot,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
     };
     const version = run(["--version"]).trim();
     run(["list", "--json"]);
@@ -38,109 +48,261 @@ function defaultCommandRunner(projectRoot) {
   } catch (error) {
     return {
       ok: false,
-      message: error.code === "ENOENT" ? "未找到 openspec 命令" : "openspec 无法正常执行",
+      message:
+        error.code === "ENOENT"
+          ? "未找到 openspec 命令"
+          : "openspec 无法正常执行",
     };
   }
 }
 
-function hasSuperpowers(projectRoot, homeDir) {
-  const candidates = [
-    path.join(projectRoot, ".agents", "skills", "superpowers"),
-    path.join(projectRoot, ".codex", "skills", "superpowers"),
-    path.join(homeDir, ".agents", "skills", "superpowers"),
-    path.join(homeDir, ".codex", "skills", "superpowers"),
-  ];
-  if (candidates.some((candidate) => existsSync(candidate))) return true;
+const SKILL_TOOL_DIRS = [
+  ".agents/skills",
+  ".codex/skills",
+  ".claude/skills",
+  ".cursor/skills",
+  ".trae/skills",
+  ".gemini/skills",
+  ".github/skills",
+  "skills",
+];
 
-  const cacheRoot = path.join(homeDir, ".codex", "plugins", "cache");
-  const queue = [{ directory: cacheRoot, depth: 0 }];
-  while (queue.length) {
-    const current = queue.shift();
-    if (current.depth > 4) continue;
-    let entries;
+function findInstalledSkill(name, projectRoot, homeDir) {
+  const roots = [projectRoot, homeDir].flatMap((root) =>
+    SKILL_TOOL_DIRS.map((relative) => path.join(root, relative)),
+  );
+  const matches = (entryName) =>
+    entryName.toLowerCase() === name.toLowerCase() ||
+    (name === "openspec" &&
+      entryName.toLowerCase().startsWith(`${name.toLowerCase()}-`));
+  let found = null;
+  for (const root of roots) {
+    const exact = path.join(root, name);
+    if (existsSync(exact) || existsSync(path.join(exact, "SKILL.md"))) {
+      found = exact;
+      break;
+    }
     try {
-      entries = readdirSync(current.directory, { withFileTypes: true });
+      const entry = readdirSync(root, { withFileTypes: true }).find(
+        (candidate) => candidate.isDirectory() && matches(candidate.name),
+      );
+      if (entry) {
+        found = path.join(root, entry.name);
+        break;
+      }
     } catch {
       continue;
     }
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name.toLowerCase() === "superpowers") return true;
-      queue.push({
-        directory: path.join(current.directory, entry.name),
-        depth: current.depth + 1,
-      });
+  }
+  return found ? { source: "skill", path: found } : null;
+}
+
+function findInstalledPlugin(name, homeDir) {
+  const cacheRoots = [
+    path.join(homeDir, ".codex", "plugins", "cache"),
+    path.join(homeDir, ".claude", "plugins", "cache"),
+  ];
+  for (const cacheRoot of cacheRoots) {
+    const queue = [{ directory: cacheRoot, depth: 0 }];
+    while (queue.length) {
+      const current = queue.shift();
+      if (current.depth > 5) continue;
+      let entries;
+      try {
+        entries = readdirSync(current.directory, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const candidate = path.join(current.directory, entry.name);
+        if (entry.name.toLowerCase() === name.toLowerCase()) {
+          return { source: "plugin", path: candidate };
+        }
+        queue.push({ directory: candidate, depth: current.depth + 1 });
+      }
     }
   }
-  return false;
+  return null;
 }
 
-function readJson(filePath) {
-  try {
-    return JSON.parse(readFileSync(filePath, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function checkCodexConfig(projectRoot) {
-  const filePath = path.join(projectRoot, ".codex", "config.toml");
-  if (!existsSync(filePath)) {
-    return check("fail", "缺少 .codex/config.toml");
-  }
-  const content = readFileSync(filePath, "utf8");
-  return content.includes("hooks = true")
-    ? check("pass", "Codex Hook 功能已启用")
-    : check("fail", "config.toml 未启用 hooks = true");
-}
-
-function checkCodexHooks(projectRoot) {
-  const filePath = path.join(projectRoot, ".codex", "hooks.json");
-  const document = readJson(filePath);
-  if (!document) return check("fail", "缺少或无法解析 .codex/hooks.json");
-
-  const hooks = document.hooks ?? {};
-  const missing = REQUIRED_HOOK_EVENTS.filter((event) => {
-    const entries = Array.isArray(hooks[event]) ? hooks[event] : [];
-    return !entries.some((entry) =>
-      Array.isArray(entry.hooks) &&
-      entry.hooks.some((hook) => hook.type === "command" && hook.command === HOOK_COMMAND),
-    );
-  });
-  const scriptPath = path.join(
-    projectRoot,
-    "skills",
-    "sprint-manage-xiaoqi",
-    "scripts",
-    "codex-hook.mjs",
+function findSuperpowers(projectRoot, homeDir, tool = "unknown") {
+  return (
+    (tool === "codex" || tool === "unknown"
+      ? findInstalledPlugin("superpowers", homeDir)
+      : null) ??
+    findInstalledSkill("superpowers", projectRoot, homeDir)
   );
-  if (!existsSync(scriptPath)) return check("fail", "Hook 脚本不存在");
-  return missing.length
-    ? check("fail", "部分 Codex 事件未配置小七 Hook", missing.join(", "))
-    : check("pass", "Codex Hook 配置完整");
 }
 
-function checkOptionalCodexConfig(projectRoot) {
-  const filePath = path.join(projectRoot, ".codex", "config.toml");
-  if (!existsSync(filePath)) {
-    return check("warn", "Codex Hook is optional and not configured");
+function detectTool(projectRoot, requestedTool) {
+  if (requestedTool) return requestedTool.toLowerCase();
+  if (existsSync(path.join(projectRoot, ".trae"))) return "trae";
+  if (
+    existsSync(path.join(projectRoot, ".codex")) ||
+    existsSync(path.join(projectRoot, ".codex", "hooks.json"))
+  ) {
+    return "codex";
   }
-  const content = readFileSync(filePath, "utf8");
-  return content.includes("hooks = true")
-    ? checkCodexConfig(projectRoot)
-    : check("warn", "Codex Hook is optional and disabled");
+  return "unknown";
 }
 
-function checkOptionalCodexHooks(projectRoot) {
-  const filePath = path.join(projectRoot, ".codex", "hooks.json");
-  if (!existsSync(filePath)) {
-    return check("warn", "Codex Hook is optional and not installed");
+function checkSkill(
+  name,
+  label,
+  projectRoot,
+  homeDir,
+  { pluginOptional = false, tool = "unknown" } = {},
+) {
+  const plugin = tool === "codex" || tool === "unknown"
+    ? findInstalledPlugin(name, homeDir)
+    : null;
+  const skill = findInstalledSkill(name, projectRoot, homeDir);
+  const installed = plugin ?? skill;
+  if (installed) {
+    const sourceLabel = installed.source === "plugin" ? "插件" : "skill";
+    const suffix = pluginOptional && installed.source === "plugin"
+      ? "，可忽略 skill 检查"
+      : "";
+    return check("pass", `${label} 已通过 ${sourceLabel} 安装${suffix}`, installed.path);
   }
-  return checkCodexHooks(projectRoot);
+
+  return check(
+    pluginOptional ? "warn" : "fail",
+    `${label} skill 未安装`,
+    label === "OpenSpec"
+      ? "可运行 openspec init --tools <当前工具>，或按当前工具安装对应的 openspec-* skill。"
+      : pluginOptional
+        ? "如果当前工具使用插件，可忽略；否则请按当前工具的 skill 安装方式安装。"
+        : `请按当前工具的 skill 安装方式安装 ${label}，安装后重新运行体检。`,
+  );
+}
+
+function runtimeRoots(projectRoot) {
+  return [
+    path.join(projectRoot, ".xiaoqi", "runtime"),
+    path.join(projectRoot, "skills", "sprint-manage-xiaoqi", "scripts"),
+  ];
+}
+
+function checkRuntime(projectRoot, configured) {
+  if (!configured) {
+    return check(
+      "warn",
+      "Hook 未启用，通用运行时未安装（可忽略）",
+      "如需启用 Hook，再运行 install-runtime.mjs 安装。",
+    );
+  }
+
+  const missing = [];
+  const root = runtimeRoots(projectRoot).find((candidate) => {
+    const filesExist = RUNTIME_FILES.every((name) =>
+      existsSync(path.join(candidate, name)),
+    );
+    const directoriesExist = RUNTIME_DIRECTORIES.every((name) =>
+      existsSync(path.join(candidate, name)),
+    );
+    return filesExist && directoriesExist;
+  });
+
+  if (root) {
+    return check("pass", "小七通用运行时可用", root);
+  }
+
+  for (const candidate of runtimeRoots(projectRoot)) {
+    for (const name of RUNTIME_FILES) {
+      if (!existsSync(path.join(candidate, name))) missing.push(name);
+    }
+    for (const name of RUNTIME_DIRECTORIES) {
+      if (!existsSync(path.join(candidate, name))) missing.push(`${name}/`);
+    }
+  }
+  return check(
+    "fail",
+    "缺少小七通用运行时",
+    [...new Set(missing)].join(", "),
+  );
+}
+
+function checkOpenSpecProject(projectRoot) {
+  const root = path.join(projectRoot, "openspec");
+  const required = ["config.yaml", "changes", "specs"];
+  const missing = required.filter((name) => !existsSync(path.join(root, name)));
+  return missing.length === 0
+    ? check("pass", "OpenSpec 项目已初始化", root)
+    : check(
+        "fail",
+        "OpenSpec 项目尚未初始化",
+        `请运行 openspec init；缺少：${missing.join(", ")}`,
+      );
+}
+
+function hasJsonConfig(projectRoot, relativePath) {
+  return existsSync(path.join(projectRoot, relativePath));
+}
+
+function hasCodexHookConfig(projectRoot) {
+  const configPath = path.join(projectRoot, ".codex", "config.toml");
+  const hooksPath = path.join(projectRoot, ".codex", "hooks.json");
+  if (existsSync(hooksPath)) return true;
+  if (!existsSync(configPath)) return false;
+  return readFileSync(configPath, "utf8").includes("hooks = true");
+}
+
+function hasAnyHookConfig(projectRoot, tool) {
+  if (tool === "codex") return hasCodexHookConfig(projectRoot);
+  if (tool === "trae") return hasJsonConfig(projectRoot, ".trae/hooks.json");
+  return hasCodexHookConfig(projectRoot) ||
+    hasJsonConfig(projectRoot, ".trae/hooks.json");
+}
+
+function adapterRoots(projectRoot) {
+  return runtimeRoots(projectRoot).map((root) => path.join(root, "adapters"));
+}
+
+function checkAdapter(projectRoot, { id, label, configured, active }) {
+  if (!active) {
+    return check("skip", `${label} 当前工具未使用，已忽略检查`);
+  }
+  if (!configured) {
+    return check(
+      "warn",
+      `${label} 适配器未安装，可按需启用`,
+      `安装通用运行时后可使用 .xiaoqi/runtime/adapters/${id}.mjs`,
+    );
+  }
+
+  const adapterPath = adapterRoots(projectRoot)
+    .map((root) => path.join(root, `${id}.mjs`))
+    .find((candidate) => existsSync(candidate));
+  return adapterPath
+    ? check("pass", `${label} 适配器已安装`, adapterPath)
+    : check(
+        "warn",
+        `已检测到 ${label} Hook 配置，但 ${label} 适配器未安装`,
+        `请安装 .xiaoqi/runtime/adapters/${id}.mjs`,
+      );
+}
+
+function checkHookEnable(id, configured) {
+  if (!configured) {
+    return check("warn", `${id} Hook 未配置`, "安装并配置 Hook 后再在对应工具内启用。");
+  }
+  if (id === "codex") {
+    return check("pass", "Codex Hook 已配置", "请在 Codex 中执行 /hooks，审核并信任项目 Hook。");
+  }
+  if (id === "trae") {
+    return check("pass", "Trae Hook 已配置", "请在 Trae 项目设置中启用并信任项目 Hook。");
+  }
+  return check("pass", `${id} Hook 已配置`, "请在对应工具内启用并信任项目 Hook。");
 }
 
 function checkRequirements(projectRoot) {
-  const requirementsPath = path.join(projectRoot, "sprint-manage", "requirements");
+  const requirementsPath = path.join(
+    projectRoot,
+    "sprint-manage",
+    "requirements",
+  );
   return existsSync(requirementsPath)
     ? check("pass", "需求账本目录已准备")
     : check("warn", "尚未创建需求账本目录，首次跟踪需求时再创建即可");
@@ -150,9 +312,9 @@ function checkGitignore(projectRoot) {
   const filePath = path.join(projectRoot, ".gitignore");
   if (!existsSync(filePath)) return check("warn", "缺少 .gitignore");
   const content = readFileSync(filePath, "utf8");
-  return /(^|\r?\n)\s*sprint-manage\/local\/(?:\r?\n|$)/.test(content)
-    ? check("pass", "已忽略本地会话文件")
-    : check("warn", "建议在 .gitignore 中加入 sprint-manage/local/");
+  return /(^|\r?\n)\s*\.xiaoqi\/(?:\r?\n|$)/.test(content)
+    ? check("pass", "已忽略本地运行文件")
+    : check("warn", "建议在 .gitignore 中加入 .xiaoqi/");
 }
 
 export async function runDoctor(
@@ -160,18 +322,48 @@ export async function runDoctor(
   {
     commandRunner = defaultCommandRunner,
     homeDir = os.homedir(),
+    tool,
   } = {},
 ) {
+  const activeTool = detectTool(projectRoot, tool);
   const openSpecResult = commandRunner(projectRoot);
+  const superpowersPath = findSuperpowers(projectRoot, homeDir, activeTool);
   const checks = {
+    nodejs: check("pass", `Node.js 已安装（${process.version}）`, process.execPath),
+    runtime: checkRuntime(projectRoot, hasAnyHookConfig(projectRoot, activeTool)),
+    codexAdapter: checkAdapter(projectRoot, {
+      id: "codex",
+      label: "Codex",
+      configured: hasCodexHookConfig(projectRoot),
+      active: activeTool === "codex",
+    }),
+    codexHookEnable: activeTool === "codex"
+      ? checkHookEnable("codex", hasCodexHookConfig(projectRoot))
+      : check("skip", "Codex 当前工具未使用，已忽略检查"),
+    traeAdapter: checkAdapter(projectRoot, {
+      id: "trae",
+      label: "Trae",
+      configured: hasJsonConfig(projectRoot, ".trae/hooks.json"),
+      active: activeTool === "trae",
+    }),
+    traeHookEnable: activeTool === "trae"
+      ? checkHookEnable("trae", hasJsonConfig(projectRoot, ".trae/hooks.json"))
+      : check("skip", "Trae 当前工具未使用，已忽略检查"),
     openSpec: openSpecResult.ok
       ? check("pass", `OpenSpec 可用（${openSpecResult.version ?? "版本未知"}）`)
       : check("fail", openSpecResult.message ?? "OpenSpec 不可用"),
-    superpowers: hasSuperpowers(projectRoot, homeDir)
+    superpowers: superpowersPath
       ? check("pass", "Superpowers 已发现")
       : check("warn", "未检测到 Superpowers，复杂研发流程可能无法使用"),
-    codexConfig: checkOptionalCodexConfig(projectRoot),
-    codexHooks: checkOptionalCodexHooks(projectRoot),
+    superpowersInstall: checkSkill(
+      "superpowers",
+      "Superpowers",
+      projectRoot,
+      homeDir,
+      { pluginOptional: true, tool: activeTool },
+    ),
+    openSpecSkill: checkSkill("openspec", "OpenSpec", projectRoot, homeDir),
+    openSpecProject: checkOpenSpecProject(projectRoot),
     requirements: checkRequirements(projectRoot),
     gitignore: checkGitignore(projectRoot),
   };
@@ -186,10 +378,14 @@ export async function runDoctor(
 function printReport(result) {
   const labels = { pass: "通过", warn: "提醒", fail: "失败" };
   for (const [name, item] of Object.entries(result.checks)) {
-    console.log(`[${labels[item.status]}] ${name}: ${item.message}`);
+    console.log(`[${labels[item.status] ?? item.status}] ${name}: ${item.message}`);
     if (item.detail) console.log(`       ${item.detail}`);
   }
-  console.log(result.ok ? "\n小七初始化检查通过。" : "\n小七初始化检查未通过，请先处理失败项。");
+  console.log(
+    result.ok
+      ? "\n小七初始化检查通过。"
+      : "\n小七初始化检查未通过，请先处理失败项。",
+  );
 }
 
 const executedPath = process.argv[1]

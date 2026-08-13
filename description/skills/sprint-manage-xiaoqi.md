@@ -376,19 +376,55 @@ Codex Hook 是可选增强，不是小七的强制依赖。安装小七技能不
 需要自动记录、流程阻断和危险命令提醒时，再手动执行：
 
 ```bash
-node skills/sprint-manage-xiaoqi/scripts/install-codex-integration.mjs .
+node "<小七技能安装目录>/scripts/install-codex-integration.mjs" "<项目根目录>"
 ```
 
-安装器默认不覆盖已有权限配置；Codex 的审批、提权和系统沙箱仍由 Codex 宿主
-控制，小七 Hook 只负责记录、流程协调和尽力阻断。已安装 Hook 但配置不完整时，
-应先修复配置，再依赖它提供运行时保护。
+安装器会把项目实际调用的 Hook 脚本复制到 `.xiaoqi/hooks/`，并默认将 `.xiaoqi/`
+加入 `.gitignore`。它默认不覆盖已有权限配置和脚本；Codex 的审批、提权和系统
+沙箱仍由 Codex 宿主控制，小七 Hook 只负责记录、流程协调和尽力阻断。已安装
+Hook 但配置不完整时，应先修复配置，再依赖它提供运行时保护。
 
 接入后可运行只读初始化检查：
 
 ```bash
-node skills/sprint-manage-xiaoqi/scripts/doctor.mjs .
+node "<小七技能安装目录>/scripts/doctor.mjs" "<项目根目录>"
 ```
 
-它会检查 OpenSpec、Superpowers、Codex 配置、Hook、需求目录和 `.gitignore`，
+脚本必须从已安装的 `sprint-manage-xiaoqi` 技能目录调用，不能假设项目根目录存在
+`skills/sprint-manage-xiaoqi/scripts/`；项目根目录只作为检查参数传入。
+
+它会分别检查 OpenSpec 命令、OpenSpec skill、OpenSpec 项目初始化、Superpowers
+插件或 skill、Codex 配置、Hook、需求目录和 `.gitignore`，
 不会自动安装依赖或覆盖项目文件。未安装 Hook 时只给出可选项提醒，不会导致体检
 失败；已安装但配置损坏时仍会报告失败。
+
+OpenSpec skill 未安装时会给出安装引导；Superpowers 已通过 Codex 插件安装时，
+可忽略 skill 缺失提醒，其他工具则支持从常见 skill 目录识别安装状态。
+
+小七的 Hook 核心已抽成通用事件协议。其他工具只需增加事件适配器，将自身事件
+转换为统一 JSON，再调用 `scripts/core/hook-runtime.mjs`。Codex 通过
+`scripts/adapters/codex.mjs` 接入，`scripts/codex-hook.mjs` 继续作为兼容入口；
+也可以直接使用：
+
+```bash
+node "<小七技能安装目录>/scripts/generic-hook.mjs"
+```
+
+### 通用工具接入规则
+
+小七提供通用运行时，以及 Codex、Trae 两个可选适配器；不识别、安装或强制检查
+具体工具的 Hook 配置。各工具自行安装 Hook，适配器负责事件转换和结果回传。
+如需复制运行时到项目内，可执行：
+
+```bash
+node "<小七技能安装目录>/scripts/install-runtime.mjs" "<项目根目录>"
+```
+
+该命令会安装 `.xiaoqi/runtime/` 下的通用核心、Codex 适配器和 Trae 适配器，
+不会生成任何工具配置。旧的 `install-codex-integration.mjs` 仅作为兼容入口，
+现已改为安装同一套运行时。
+初始化检查会根据 Hook 是否已配置决定运行时检查：未配置 Hook 时只提醒“可选”，
+已配置 Hook 但缺少通用运行时时才报告失败。
+检测到 Codex 或 Trae Hook 配置后，还会提示用户到对应工具内启用并信任 Hook。
+体检会优先根据项目中的 `.trae/` 或 `.codex/` 配置识别当前工具；在 Trae 环境
+中会跳过 Codex 配置、适配器和插件检查，避免把其他工具的安装状态当成当前环境问题。

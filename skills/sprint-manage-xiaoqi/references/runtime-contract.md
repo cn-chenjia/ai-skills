@@ -5,7 +5,7 @@
 所有由小七发起的命令，优先通过：
 
 ```bash
-node skills/sprint-manage-xiaoqi/scripts/guarded-run.mjs
+node "<小七技能安装目录>/scripts/guarded-run.mjs"
 ```
 
 执行器提供以下项目级保护：
@@ -35,7 +35,7 @@ before-close
 调用示例：
 
 ```bash
-node skills/sprint-manage-xiaoqi/scripts/lifecycle.mjs \
+node "<小七技能安装目录>/scripts/lifecycle.mjs" \
   before-action \
   sprint-manage/requirements/story-1001.yaml \
   payload.json \
@@ -62,9 +62,10 @@ Codex Hook 不是小七的强制依赖。不接入时，小七仍可通过账本
 ```text
 .codex/config.toml
 .codex/hooks.json
+.xiaoqi/hooks/
 ```
 
-`scripts/codex-hook.mjs` 从 stdin 读取 Codex 事件，映射到小七生命周期。它会
+`.xiaoqi/hooks/codex-hook.mjs` 从 stdin 读取 Codex 事件，映射到小七生命周期。它会
 阻断破坏性 Git/文件命令，并在工作区只有一个需求账本时自动发现该账本；多个需求
 同时存在时，使用 `XIAOQI_LEDGER` 或 Hook 输入中的 `ledger` 明确指定。
 
@@ -75,6 +76,20 @@ Codex Hook 不是小七的强制依赖。不接入时，小七仍可通过账本
   `.codex/hooks.json`。
 - 这两个文件属于宿主项目配置，不属于技能运行时文件。
 - 可显式运行 `scripts/install-codex-integration.mjs .` 生成模板。
-- 安装器默认不覆盖已有配置；`--force` 才会覆盖。
+- 安装器会把 Hook 运行脚本复制到项目 `.xiaoqi/hooks/`，并将 `.xiaoqi/` 加入
+  `.gitignore`。
+- 安装器默认不覆盖已有配置和脚本；`--force` 才会覆盖。
 - Codex 权限审批、提权和系统沙箱仍由宿主控制，小七 Hook 只负责记录、流程协调
   和尽力阻断。
+
+## 通用工具接入
+
+以上 Codex 配置仅用于历史兼容。当前推荐各工具自行安装和触发 Hook，再调用小七
+通用入口：
+
+```bash
+node "<小七技能安装目录>/scripts/generic-hook.mjs"
+```
+
+小七不检查具体工具的 Hook 配置。初始化检查只确认通用运行时是否存在；工具侧只需
+将自身事件转换为 [event-contract.md](event-contract.md) 定义的统一 JSON。

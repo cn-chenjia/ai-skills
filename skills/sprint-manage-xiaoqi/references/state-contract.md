@@ -209,7 +209,7 @@ node scripts/ledger-lock.mjs commit \
 交付状态不能通过手工编辑直接推进。统一使用：
 
 ```bash
-node skills/sprint-manage-xiaoqi/scripts/advance-progress.mjs \
+node "<小七技能安装目录>/scripts/advance-progress.mjs" \
   sprint-manage/requirements/story-1001.yaml \
   verified \
   evidence/check.json \

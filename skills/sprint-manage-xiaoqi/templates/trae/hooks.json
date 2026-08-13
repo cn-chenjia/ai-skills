@@ -2,44 +2,40 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "node .xiaoqi/hooks/codex-hook.mjs"
+            "command": "node .xiaoqi/runtime/trae-hook.mjs"
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "node .xiaoqi/hooks/codex-hook.mjs"
+            "command": "node .xiaoqi/runtime/trae-hook.mjs"
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "node .xiaoqi/hooks/codex-hook.mjs"
+            "command": "node .xiaoqi/runtime/trae-hook.mjs"
           }
         ]
       }
     ],
     "Stop": [
       {
-        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "node .xiaoqi/hooks/codex-hook.mjs"
+            "command": "node .xiaoqi/runtime/trae-hook.mjs"
           }
         ]
       }

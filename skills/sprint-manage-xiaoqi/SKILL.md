@@ -225,26 +225,71 @@ Hook 是可选的。安装小七技能不会自动修改宿主项目的 `.codex/
 阻断和危险命令提醒时，再显式运行：
 
 ```bash
-node skills/sprint-manage-xiaoqi/scripts/install-codex-integration.mjs .
+node "<小七技能安装目录>/scripts/install-codex-integration.mjs" "<项目根目录>"
 ```
 
-安装器默认不覆盖已有配置；确认需要覆盖模板时才使用 `--force`。Hook 已安装
-但配置不完整时，应先修复配置，再依赖它提供运行时保护。
+安装器会把项目实际调用的 Hook 脚本复制到 `.xiaoqi/hooks/`，并默认将 `.xiaoqi/`
+加入 `.gitignore`。它默认不覆盖已有配置和脚本；确认需要覆盖模板时才使用
+`--force`。Hook 已安装但配置不完整时，应先修复配置，再依赖它提供运行时保护。
 
 安装或接入完成后，建议运行只读体检：
 
 ```bash
-node skills/sprint-manage-xiaoqi/scripts/doctor.mjs .
+node "<小七技能安装目录>/scripts/doctor.mjs" "<项目根目录>"
 ```
 
-体检会检查 OpenSpec、Superpowers、Codex 配置、Hook 脚本、需求账本目录和
+脚本路径必须来自已安装的 `sprint-manage-xiaoqi` 技能目录，不能假设项目根目录存在
+`skills/sprint-manage-xiaoqi/scripts/`；最后一个参数才是待检查的项目。
+
+体检会分别检查 OpenSpec CLI、OpenSpec skill、OpenSpec 项目初始化状态、
+Superpowers 插件或 skill、Codex 配置、Hook 脚本、需求账本目录和
 `.gitignore`。它不会安装依赖、创建需求或覆盖现有配置；`requirements` 目录
 不存在时只给出提醒。若宿主沙箱禁止 Node 启动外部命令，OpenSpec 检查会提示
 无法执行，此时仍需在宿主终端单独确认 `openspec --version` 和
 `openspec list --json`。
 
+OpenSpec skill 未安装时会给出安装引导；Superpowers 如果已通过 Codex 插件安装，
+则不要求额外存在 skill 目录，其他工具可通过各自的 skill 目录被识别。
+
+## 通用工具接入
+
+小七提供通用运行时，以及 Codex、Trae 两个可选适配器；不识别、安装或强制检查
+具体工具的 Hook 配置。各工具自行决定 Hook 的安装和触发时机，适配器负责把自身
+事件转换为统一 JSON，并把小七决策转换回工具格式：
+
+```bash
+node "<小七技能安装目录>/scripts/generic-hook.mjs"
+```
+
+如需复制运行时到项目内，执行：
+
+```bash
+node "<小七技能安装目录>/scripts/install-runtime.mjs" "<项目根目录>"
+```
+
+该命令会安装 `.xiaoqi/runtime/` 下的通用核心、Codex 适配器和 Trae 适配器，
+不会生成任何工具配置。旧的 `install-codex-integration.mjs` 仅作为兼容入口，
+现已改为安装同一套运行时。
+
+Trae 的项目级配置文件是 `.trae/hooks.json`。小七提供
+`templates/trae/hooks.json` 作为配置参考，实际安装和信任仍由 Trae 项目自行管理。
+
+体检会根据 Hook 是否已配置决定运行时检查：未配置 Hook 时只提醒“可选”，
+已配置 Hook 但缺少通用运行时时才报告失败：
+
+```bash
+node "<小七技能安装目录>/scripts/doctor.mjs" "<项目根目录>"
+```
+
+检测到 Codex 或 Trae Hook 配置后，体检结果会继续提示用户到对应工具内启用并
+信任 Hook；配置文件存在不代表工具已经启用。
+
+体检会优先根据项目中的 `.trae/` 或 `.codex/` 配置识别当前工具。当前是 Trae
+时，Codex 适配器、Codex Hook 和 Codex 插件会标记为跳过，不会产生误报。
+
 ## Resources
 
+- [references/event-contract.md](references/event-contract.md)：通用事件协议、适配器边界和 JSON 接入方式。
 - [references/state-contract.md](references/state-contract.md)：V4 独立需求账本、双状态、协作元数据和迁移协议。
 - [references/step-details.md](references/step-details.md)：原生动作路由、并行协作、变更和恢复规则。
 - [scripts/validate-progress.mjs](scripts/validate-progress.mjs)：零第三方依赖的 V4 文件与目录校验器。
@@ -256,7 +301,7 @@ node skills/sprint-manage-xiaoqi/scripts/doctor.mjs .
 交付状态禁止直接手工修改，必须使用：
 
 ```bash
-node skills/sprint-manage-xiaoqi/scripts/advance-progress.mjs \
+node "<小七技能安装目录>/scripts/advance-progress.mjs" \
   sprint-manage/requirements/story-1001.yaml \
   verified \
   evidence/check.json \

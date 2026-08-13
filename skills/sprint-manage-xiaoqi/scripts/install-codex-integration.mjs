@@ -1,45 +1,26 @@
 #!/usr/bin/env node
 // Author: CJ <chenjia@fehorizon.com>
 
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
-import path from "node:path";
 import process from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 
-const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const templateDir = path.resolve(scriptDir, "..", "templates", "codex");
+import { installRuntime } from "./install-runtime.mjs";
 
-export function installCodexIntegration(projectRoot, { force = false } = {}) {
-  const targetDir = path.join(projectRoot, ".codex");
-  mkdirSync(targetDir, { recursive: true });
-  const written = [];
-  const skipped = [];
-
-  for (const name of ["config.toml", "hooks.json"]) {
-    const target = path.join(targetDir, name);
-    if (existsSync(target) && !force) {
-      skipped.push(target);
-      continue;
-    }
-    copyFileSync(path.join(templateDir, name), target);
-    written.push(target);
-  }
-  return { written, skipped };
-}
-
-function runCli(args) {
-  const projectRoot = path.resolve(args[0] ?? process.cwd());
-  const result = installCodexIntegration(projectRoot, {
-    force: args.includes("--force"),
-  });
-  result.written.forEach((file) => console.log(`created: ${file}`));
-  result.skipped.forEach((file) => console.log(`skipped: ${file}`));
-  return 0;
+// Kept as a compatibility entry point. It no longer creates Codex configuration.
+export function installCodexIntegration(projectRoot, options = {}) {
+  return installRuntime(projectRoot, options);
 }
 
 const executedPath = process.argv[1]
-  ? pathToFileURL(path.resolve(process.argv[1])).href
+  ? pathToFileURL(process.argv[1]).href
   : null;
 if (executedPath === import.meta.url) {
-  process.exitCode = runCli(process.argv.slice(2));
+  const projectRoot = process.argv[2] ?? process.cwd();
+  const result = installRuntime(projectRoot, {
+    force: process.argv.includes("--force"),
+  });
+  console.error("提示：该兼容命令现在只安装小七通用运行时，不会生成 Codex 配置。");
+  result.written.forEach((file) => console.log(`created: ${file}`));
+  result.skipped.forEach((file) => console.log(`skipped: ${file}`));
+  console.log(`${result.gitignore.status}: ${result.gitignore.path}`);
 }

@@ -6,24 +6,32 @@ import test from "node:test";
 
 import { installCodexIntegration } from "../scripts/install-codex-integration.mjs";
 
-test("installer creates Codex files without overwriting existing config", async () => {
+test("legacy installer installs only the generic runtime", async () => {
   const project = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-codex-install-"));
   const first = installCodexIntegration(project);
-  assert.equal(first.written.length, 2);
+  assert.ok(first.written.length > 0);
   assert.equal(first.skipped.length, 0);
-  assert.match(
-    await readFile(path.join(project, ".codex", "config.toml"), "utf8"),
-    /hooks = true/,
+  assert.equal(first.status, "created");
+  assert.equal(first.gitignore.status, "created");
+  assert.equal(await readFile(path.join(project, ".codex"), "utf8").catch(() => null), null);
+  assert.equal(
+    await readFile(path.join(project, ".xiaoqi", "runtime", "generic-hook.mjs"), "utf8")
+      .then(() => true),
+    true,
   );
+  assert.equal(
+    await readFile(path.join(project, ".xiaoqi", "runtime", "guarded-run.mjs"), "utf8")
+      .then(() => true),
+    true,
+  );
+  assert.equal(
+    await readFile(path.join(project, ".xiaoqi", "runtime", "trae-hook.mjs"), "utf8")
+      .then(() => true),
+    true,
+  );
+  assert.match(await readFile(path.join(project, ".gitignore"), "utf8"), /^\.xiaoqi\/$/m);
 
-  await writeFile(
-    path.join(project, ".codex", "config.toml"),
-    'approval_policy = "never"\n',
-  );
   const second = installCodexIntegration(project);
-  assert.equal(second.skipped.length, 2);
-  assert.match(
-    await readFile(path.join(project, ".codex", "config.toml"), "utf8"),
-    /never/,
-  );
+  assert.equal(second.status, "skipped");
+  assert.equal(second.gitignore.status, "skipped");
 });
