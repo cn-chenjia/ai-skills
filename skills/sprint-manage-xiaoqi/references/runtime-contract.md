@@ -66,3 +66,12 @@ node skills/sprint-manage-xiaoqi/scripts/lifecycle.mjs \
 同时存在时，使用 `XIAOQI_LEDGER` 或 Hook 输入中的 `ledger` 明确指定。
 
 配置完成后，需要在 Codex 中执行 `/hooks`，审核并信任项目 Hook。
+安装边界：
+
+- 安装小七技能本身不会自动生成项目根目录的 `.codex/config.toml` 或
+  `.codex/hooks.json`。
+- 这两个文件属于宿主项目配置，不属于技能运行时文件。
+- 可显式运行 `scripts/install-codex-integration.mjs .` 生成模板。
+- 安装器默认不覆盖已有配置；`--force` 才会覆盖。
+- Codex 权限审批、提权和系统沙箱仍由宿主控制，小七 Hook 只负责记录、流程协调
+  和尽力阻断。

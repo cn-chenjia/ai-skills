@@ -215,6 +215,19 @@ OpenSpec 的 artifact 状态每次通过 CLI 重新读取；账本中的 `OpenSp
 用户只问进度时不擅自修改；用户要求开始、继续、更新、验证、归档或收尾时，
 在原生工具允许且风险可控时主动推进。
 
+## Harness 与 Codex 接入边界
+
+小七负责需求账本、状态迁移、证据链、流程阻断和运行记录。Codex 的权限审批、
+提权和操作系统沙箱由宿主负责，Hook 不能替代宿主权限策略。
+
+安装小七技能不会自动修改宿主项目的 `.codex/`。需要接入 Codex 时，显式运行：
+
+```bash
+node skills/sprint-manage-xiaoqi/scripts/install-codex-integration.mjs .
+```
+
+安装器默认不覆盖已有配置；确认需要覆盖模板时才使用 `--force`。
+
 ## Resources
 
 - [references/state-contract.md](references/state-contract.md)：V4 独立需求账本、双状态、协作元数据和迁移协议。
