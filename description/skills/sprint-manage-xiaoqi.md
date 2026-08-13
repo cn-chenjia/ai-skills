@@ -371,11 +371,24 @@ GitHub地址：https://github.com/cn-chenjia/ai-skills/tree/main/skills/sprint-m
 - `.codex/config.toml` 与 `.codex/hooks.json`：Codex 项目级接入配置。
 
 多需求同时开发时，必须显式指定当前账本，禁止猜测需求归属。
-安装小七技能不会自动生成 `.codex` 配置。需要接入 Codex 时，手动执行：
+Codex Hook 是可选增强，不是小七的强制依赖。安装小七技能不会自动生成
+`.codex` 配置；不安装 Hook 也不影响需求账本、状态推进、证据校验和手动导航。
+需要自动记录、流程阻断和危险命令提醒时，再手动执行：
 
 ```bash
 node skills/sprint-manage-xiaoqi/scripts/install-codex-integration.mjs .
 ```
 
 安装器默认不覆盖已有权限配置；Codex 的审批、提权和系统沙箱仍由 Codex 宿主
-控制，小七 Hook 只负责记录、流程协调和尽力阻断。
+控制，小七 Hook 只负责记录、流程协调和尽力阻断。已安装 Hook 但配置不完整时，
+应先修复配置，再依赖它提供运行时保护。
+
+接入后可运行只读初始化检查：
+
+```bash
+node skills/sprint-manage-xiaoqi/scripts/doctor.mjs .
+```
+
+它会检查 OpenSpec、Superpowers、Codex 配置、Hook、需求目录和 `.gitignore`，
+不会自动安装依赖或覆盖项目文件。未安装 Hook 时只给出可选项提醒，不会导致体检
+失败；已安装但配置损坏时仍会报告失败。

@@ -220,13 +220,28 @@ OpenSpec 的 artifact 状态每次通过 CLI 重新读取；账本中的 `OpenSp
 小七负责需求账本、状态迁移、证据链、流程阻断和运行记录。Codex 的权限审批、
 提权和操作系统沙箱由宿主负责，Hook 不能替代宿主权限策略。
 
-安装小七技能不会自动修改宿主项目的 `.codex/`。需要接入 Codex 时，显式运行：
+Hook 是可选的。安装小七技能不会自动修改宿主项目的 `.codex/`；不安装 Hook
+不影响账本、状态推进、证据校验和手动导航。需要使用 Codex 自动记录、流程
+阻断和危险命令提醒时，再显式运行：
 
 ```bash
 node skills/sprint-manage-xiaoqi/scripts/install-codex-integration.mjs .
 ```
 
-安装器默认不覆盖已有配置；确认需要覆盖模板时才使用 `--force`。
+安装器默认不覆盖已有配置；确认需要覆盖模板时才使用 `--force`。Hook 已安装
+但配置不完整时，应先修复配置，再依赖它提供运行时保护。
+
+安装或接入完成后，建议运行只读体检：
+
+```bash
+node skills/sprint-manage-xiaoqi/scripts/doctor.mjs .
+```
+
+体检会检查 OpenSpec、Superpowers、Codex 配置、Hook 脚本、需求账本目录和
+`.gitignore`。它不会安装依赖、创建需求或覆盖现有配置；`requirements` 目录
+不存在时只给出提醒。若宿主沙箱禁止 Node 启动外部命令，OpenSpec 检查会提示
+无法执行，此时仍需在宿主终端单独确认 `openspec --version` 和
+`openspec list --json`。
 
 ## Resources
 

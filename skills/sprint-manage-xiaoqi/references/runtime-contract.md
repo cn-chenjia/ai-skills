@@ -52,7 +52,10 @@ node skills/sprint-manage-xiaoqi/scripts/lifecycle.mjs \
 
 所有钩子事件都写入需求账本，并通过账本锁和 revision 提交。
 
-## Codex 接入
+## Codex 可选接入
+
+Codex Hook 不是小七的强制依赖。不接入时，小七仍可通过账本、状态推进、
+证据校验和手动动作完成需求跟踪；接入后才启用自动记录、流程阻断和危险命令提醒。
 
 项目根目录使用：
 
@@ -65,7 +68,7 @@ node skills/sprint-manage-xiaoqi/scripts/lifecycle.mjs \
 阻断破坏性 Git/文件命令，并在工作区只有一个需求账本时自动发现该账本；多个需求
 同时存在时，使用 `XIAOQI_LEDGER` 或 Hook 输入中的 `ledger` 明确指定。
 
-配置完成后，需要在 Codex 中执行 `/hooks`，审核并信任项目 Hook。
+如选择接入，配置完成后需要在 Codex 中执行 `/hooks`，审核并信任项目 Hook。
 安装边界：
 
 - 安装小七技能本身不会自动生成项目根目录的 `.codex/config.toml` 或
