@@ -352,3 +352,22 @@ GitHub地址：https://github.com/cn-chenjia/ai-skills/tree/main/skills/sprint-m
 * ✅ 温暖化的交互体验，让 AI 协作不再冰冷
 
 最终实现： 让每个人都能高效地使用 AI Coding，让团队整体的研发效能稳步提升 💪
+## V4 Harness 与 Codex 运行时接入
+
+小七支持需求级独立账本、多人并行协作和可执行状态门禁：
+
+- 每个需求使用独立的 `requirements/<id>.yaml`、branch 和 worktree。
+- 多人并行开发声明 `write_scope`、`depends_on` 和集成分支。
+- 检查依赖循环、写入范围冲突、重复 branch 和重复 worktree。
+- 交付状态通过 `advance-progress.mjs` 推进，必须提供测试、评审、OpenSpec
+  验证和 finish 证据。
+
+项目级运行时能力：
+
+- `guarded-run.mjs`：命令白名单、禁止 shell、路径范围和超时控制。
+- `lifecycle.mjs`：session-start、before-action、after-action、on-failure、
+  before-close。
+- `codex-hook.mjs`：Codex stdin 事件适配和危险命令阻断。
+- `.codex/config.toml` 与 `.codex/hooks.json`：Codex 项目级接入配置。
+
+多需求同时开发时，必须显式指定当前账本，禁止猜测需求归属。
