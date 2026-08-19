@@ -6,9 +6,8 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
-  readFileSync,
-  writeFileSync,
 } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -44,21 +43,8 @@ function copyTree(sourceDir, targetDir, force, written, skipped) {
   }
 }
 
-function ensureGitignore(projectRoot) {
-  const filePath = path.join(projectRoot, ".gitignore");
-  const entry = ".xiaoqi/";
-  const original = existsSync(filePath) ? readFileSync(filePath, "utf8") : "";
-  const lines = original.split(/\r?\n/);
-  if (lines.some((line) => line.trim() === entry)) {
-    return { status: "skipped", path: filePath };
-  }
-  const separator = original && !original.endsWith("\n") ? "\n" : "";
-  writeFileSync(filePath, `${original}${separator}${entry}\n`, "utf8");
-  return { status: "created", path: filePath };
-}
-
-export function installRuntime(projectRoot, { force = false } = {}) {
-  const targetDir = path.join(projectRoot, ".xiaoqi", "runtime");
+export function installRuntime({ force = false, homeDir = os.homedir() } = {}) {
+  const targetDir = path.join(homeDir, ".xiaoqi", "runtime");
   const written = [];
   const skipped = [];
   mkdirSync(targetDir, { recursive: true });
@@ -88,18 +74,15 @@ export function installRuntime(projectRoot, { force = false } = {}) {
     status: written.length > 0 ? "created" : "skipped",
     written,
     skipped,
-    gitignore: ensureGitignore(projectRoot),
   };
 }
 
 function runCli(args) {
-  const projectRoot = path.resolve(args[0] ?? process.cwd());
-  const result = installRuntime(projectRoot, {
+  const result = installRuntime({
     force: args.includes("--force"),
   });
   result.written.forEach((file) => console.log(`created: ${file}`));
   result.skipped.forEach((file) => console.log(`skipped: ${file}`));
-  console.log(`${result.gitignore.status}: ${result.gitignore.path}`);
   return 0;
 }
 

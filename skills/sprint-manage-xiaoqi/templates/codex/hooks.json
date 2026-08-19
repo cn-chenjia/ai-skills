@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .xiaoqi/hooks/codex-hook.mjs"
+            "command": "node \"%USERPROFILE%/.xiaoqi/runtime/codex-hook.mjs\""
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .xiaoqi/hooks/codex-hook.mjs"
+            "command": "node \"%USERPROFILE%/.xiaoqi/runtime/codex-hook.mjs\""
           }
         ]
       }
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .xiaoqi/hooks/codex-hook.mjs"
+            "command": "node \"%USERPROFILE%/.xiaoqi/runtime/codex-hook.mjs\""
           }
         ]
       }
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .xiaoqi/hooks/codex-hook.mjs"
+            "command": "node \"%USERPROFILE%/.xiaoqi/runtime/codex-hook.mjs\""
           }
         ]
       }

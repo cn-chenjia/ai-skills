@@ -17,7 +17,7 @@
 | --- | --- |
 | 小七 | 意图识别、动作路由、多需求总览、阻塞恢复、用户决策和证据索引 |
 | OpenSpec | 需求事实、proposal、design、specs、tasks、规格校验、同步和归档 |
-| Superpowers | 澄清、计划、TDD、调试、执行、验证、评审和分支收尾 |
+| Superpowers | TDD、调试、执行、验证、评审和分支收尾 |
 | 项目工具 | 测试、构建、静态检查、Git、CI 和其他运行结果 |
 
 核心原则：
@@ -25,6 +25,17 @@
 > 原生工具决定事实，小七账本只记录跨工具的决策、阻塞和证据索引。
 
 小七不会复制 OpenSpec 的状态机，也不会把 Superpowers 的内部步骤改写成另一套固定流程。
+
+## 流程所有权
+
+一旦小七被触发并定位到需求账本，小七拥有该需求的流程所有权，直到到达
+`ready`、`blocked`、`closed`，或用户明确退出小七流程。
+
+- OpenSpec、Superpowers 和项目工具只是小七调用的内部能力。
+- 内部能力完成后，控制权必须返回小七。
+- 用户在 `explore` 后确认执行时，当前模型必须继续执行到 `ready` 或人工门禁。
+- 不得把“确认执行”路由到独立 `writing-plans`。
+- 只有用户明确说“先给我计划，不要执行”时，才单独生成计划。
 
 ## 二、当前工作方式
 
@@ -40,7 +51,7 @@ explore -> propose -> apply -> update -> verify -> sync -> archive
 
 | 动作 | 作用 | 主要责任方 |
 | --- | --- | --- |
-| `explore` | 调查问题、澄清需求或比较方向，不承诺创建变更 | OpenSpec；可使用 brainstorming 辅助 |
+| `explore` | 调查问题、澄清需求、比较方向和确认业务事实 | OpenSpec |
 | `propose` | 创建或完善 OpenSpec change artifacts | OpenSpec |
 | `apply` | 按 tasks 实施变更，并遵循 Superpowers 的工程纪律 | OpenSpec + Superpowers |
 | `update` | 开发中需求、设计或任务发生变化时更新现有 artifacts | OpenSpec |
@@ -51,6 +62,14 @@ explore -> propose -> apply -> update -> verify -> sync -> archive
 
 当前不要求用户先在 OpenSpec、直接开发或 BMAD 之间选择模式。小七应先读取真实状态，再根据当前任务和工具能力选择下一步动作。
 
+重要区分：
+
+- `apply` 表示当前模型按已确认的 tasks 实施代码。
+- 需求已经确认后，不能把 `apply` 理解成“当前对话里手动执行一步”。
+- 需求处于 `not-started` 时，当前模型必须先执行 `apply`，成功后推进到 `coding`，
+  再继续执行检查、评审和 OpenSpec 校验。
+- 除非动作失败、需要业务决策、需要高风险授权或证据不完整，否则不能在 `apply` 后暂停询问用户。
+
 ## 三、触发范围
 
 以下情况会触发小七：
@@ -59,6 +78,22 @@ explore -> propose -> apply -> update -> verify -> sync -> archive
 - 用户要求查看、创建、推进、暂停、恢复、诊断或关闭研发流程。
 - 用户询问已追踪需求或迭代的下一步。
 - 项目已经存在 `sprint-manage/requirements/`，且用户正在继续该流程。
+- 小七已经在当前会话接管流程后，用户发送“确认”“可以”“执行”“继续”“好”
+  等简短确认或续接消息。
+
+一旦小七在当前会话接管流程，后续消息默认继续使用小七，不要求用户重复输入“小七”。
+只有用户明确输入 `退出小七` 才解除会话接管。短确认消息不能因为缺少上下文关键词而
+被重新路由到其他技能。
+
+为了让宿主在多轮交互中持续保留这个约束，初始化时应安装宿主规则：
+
+```bash
+node "<小七技能安装目录>/scripts/install-host-rules.mjs" "<项目根目录>" codex
+node "<小七技能安装目录>/scripts/install-host-rules.mjs" "<项目根目录>" trae
+```
+
+Codex 规则写入项目 `AGENTS.md`，Trae 规则写入用户级全局规则。初始化检查只负责发现
+规则缺失并提示，不自动修改用户文件。
 
 以下情况通常不触发小七：
 
@@ -88,6 +123,7 @@ explore -> propose -> apply -> update -> verify -> sync -> archive
 ```text
 sprint-manage/requirements/<id>.yaml
 OpenSpec change_id
+base branch
 Git branch
 worktree
 ```
@@ -99,6 +135,11 @@ sprint-manage/local/session.yaml
 ```
 
 该文件不提交 Git。
+
+需求在调查和方案阶段不需要提前创建工作区。准备执行 `apply` 时，小七先运行独立的
+工作区准备步骤：首个编码需求可以使用当前目录；当前目录已经被其他编码需求占用时，
+从需求账本记录的基线分支自动创建 `.worktrees/<需求编号>`。创建成功后再继续编码，
+准备失败时不推进需求状态。
 
 ### 单写入者规则
 
@@ -135,7 +176,8 @@ sprint-manage/local/session.yaml
 
 ## 六、需求和设计协作
 
-问题尚不清楚时，使用 OpenSpec `explore`，必要时使用 Superpowers brainstorming 辅助澄清。
+问题尚不清楚时，使用 OpenSpec `explore`。需求澄清、方案比较和业务事实确认
+全部由 OpenSpec `explore` 负责。
 
 澄清后的需求事实、设计决策和验收条件应写入 OpenSpec artifacts：
 
@@ -175,7 +217,7 @@ propose
 ```text
 explore
   -> propose
-  -> Superpowers plan
+  -> 当前模型持续执行
   -> worktree + TDD + 执行计划
   -> 项目验证 + review + OpenSpec verify
   -> sync（按需）
@@ -248,6 +290,65 @@ summary:
 - Superpowers finish 成功。
 - 最终交付状态为 `pr-open`、`merged` 或 `kept`。
 
+## 模型连续执行
+
+小七采用“前置确认、后续由当前模型持续执行”的方式。
+
+- 当前模型根据目标、范围、验收条件和风险判断是否需要 `explore`。
+- 需求明确且低风险时，当前模型直接跳过 `explore`。
+- 存在业务歧义、范围不清或高风险变更时，使用 OpenSpec `explore` 并等待用户确认。
+- 需求确认后，当前模型持续执行 tasks、修改代码、调用项目检查并处理失败。
+- 每个交付状态必须有真实证据，状态推进统一调用 `advance-progress.mjs`。
+- 到达 `ready` 后停止，等待用户提交或执行独立的 `finish`。
+
+执行循环为：
+
+```text
+读取状态
+  -> 获取下一动作
+  -> 模型实施或修复
+  -> 调用项目工具检查
+  -> 收集证据
+  -> 使用脚本校验并推进状态
+  -> 继续，直到 ready 或人工门禁
+```
+
+模型负责理解需求、修改代码、分析错误、自动修复、普通代码评审和 OpenSpec
+一致性判断。脚本负责账本锁、证据校验、状态迁移、事件记录、重试计数和危险操作拦截。
+
+`ready` 是自动化终点，不代表已经创建 PR 或合并。`ready -> pr-open | merged | kept`
+仍由独立的 `finish` 动作负责。
+
+### 自动修复和人工门禁
+
+测试失败、构建失败和普通 OpenSpec 校验失败，不能第一次失败就进入 `blocked`。
+当前模型应先分析错误、自动修复，再重新执行原动作：
+
+```text
+执行失败
+  -> 分析错误
+  -> 自动修复
+  -> 重试原动作
+  -> 成功则继续
+  -> 达到重试上限才 blocked
+```
+
+默认每个相同错误最多自动修复 3 次；连续出现相同错误时不得无限重试。
+
+以下情况可以直接请求人工：
+
+- 评审发现高风险问题。
+- 需要权限或环境授权。
+- 需要破坏性操作确认。
+- 自动修复次数耗尽。
+- 无法判断失败原因。
+- 发现业务规则冲突。
+
+普通评审问题也应先尝试自动修复，再重新评审；只有高风险评审问题直接进入人工门禁。
+
+用户确认“开始执行”后，当前模型必须持续执行小七流程，不能把控制权交给独立计划流程，
+也不能在普通步骤之间反复询问。只有遇到人工门禁或达到 `ready` 时才停止。
+
 ## 九、阻塞和恢复
 
 以下情况应进入 `blocked`：
@@ -304,11 +405,10 @@ summary:
 - 关闭前的最终证据检查。
 - 危险命令提醒或拦截。
 
-项目级运行时目录：
+用户级运行时目录：
 
 ```text
-.xiaoqi/runtime/
-.xiaoqi/hooks/
+~/.xiaoqi/runtime/
 ```
 
 Codex 项目接入配置：

@@ -57,15 +57,20 @@ node "<小七技能安装目录>/scripts/lifecycle.mjs" \
 Codex Hook 不是小七的强制依赖。不接入时，小七仍可通过账本、状态推进、
 证据校验和手动动作完成需求跟踪；接入后才启用自动记录、流程阻断和危险命令提醒。
 
-项目根目录使用：
+项目级配置使用：
 
 ```text
 .codex/config.toml
 .codex/hooks.json
-.xiaoqi/hooks/
 ```
 
-`.xiaoqi/hooks/codex-hook.mjs` 从 stdin 读取 Codex 事件，映射到小七生命周期。它会
+运行时文件位于用户目录：
+
+```text
+~/.xiaoqi/runtime/
+```
+
+`~/.xiaoqi/runtime/codex-hook.mjs` 从 stdin 读取 Codex 事件，映射到小七生命周期。它会
 阻断破坏性 Git/文件命令，并在工作区只有一个需求账本时自动发现该账本；多个需求
 同时存在时，使用 `XIAOQI_LEDGER` 或 Hook 输入中的 `ledger` 明确指定。
 
@@ -75,10 +80,9 @@ Codex Hook 不是小七的强制依赖。不接入时，小七仍可通过账本
 - 安装小七技能本身不会自动生成项目根目录的 `.codex/config.toml` 或
   `.codex/hooks.json`。
 - 这两个文件属于宿主项目配置，不属于技能运行时文件。
-- 可显式运行 `scripts/install-codex-integration.mjs .` 生成模板。
-- 安装器会把 Hook 运行脚本复制到项目 `.xiaoqi/hooks/`，并将 `.xiaoqi/` 加入
-  `.gitignore`。
-- 安装器默认不覆盖已有配置和脚本；`--force` 才会覆盖。
+- 可显式运行 `scripts/install-codex-integration.mjs` 安装运行文件。
+- 安装器会把 Hook 运行脚本复制到用户目录下的 `~/.xiaoqi/runtime/`。
+- 安装器默认不覆盖已有脚本；`--force` 才会覆盖。
 - Codex 权限审批、提权和系统沙箱仍由宿主控制，小七 Hook 只负责记录、流程协调
   和尽力阻断。
 

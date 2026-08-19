@@ -1,0 +1,65 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, mkdir, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import {
+  installHostRules,
+  hostRulesPath,
+  managedBlock,
+} from "../scripts/host-rules.mjs";
+import { runDoctor as executeDoctor } from "../scripts/doctor.mjs";
+
+test("installs an idempotent managed Xiaoqi block into Codex AGENTS.md", async () => {
+  const project = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-host-rules-codex-"));
+  const agentsPath = path.join(project, "AGENTS.md");
+  await writeFile(agentsPath, "# Project rules\n\nKeep existing guidance.\n", "utf8");
+
+  const first = installHostRules({ projectRoot: project, tool: "codex" });
+  const content = await readFile(agentsPath, "utf8");
+
+  assert.equal(first.status, "created");
+  assert.equal(first.path, agentsPath);
+  assert.match(content, /Keep existing guidance/);
+  assert.equal(content.match(/xiaoqi-session-lock:start/g)?.length, 1);
+  assert.match(content, /确认.*可以.*执行.*继续/);
+
+  const second = installHostRules({ projectRoot: project, tool: "codex" });
+  const updated = await readFile(agentsPath, "utf8");
+  assert.equal(second.status, "unchanged");
+  assert.equal(updated, content);
+});
+
+test("installs Trae session rules under the user rule directory", async () => {
+  const project = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-host-rules-trae-"));
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-host-rules-home-"));
+
+  const result = installHostRules({
+    projectRoot: project,
+    tool: "trae",
+    homeDir,
+  });
+  const rulesPath = hostRulesPath({ projectRoot: project, tool: "trae", homeDir });
+
+  assert.equal(result.status, "created");
+  assert.equal(result.path, rulesPath);
+  assert.equal(await readFile(rulesPath, "utf8"), managedBlock("trae"));
+});
+
+test("doctor reports missing host rules without changing files", async () => {
+  const project = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-host-rules-doctor-"));
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-host-rules-doctor-home-"));
+  await mkdir(path.join(project, ".codex"), { recursive: true });
+  await writeFile(path.join(project, ".codex", "hooks.json"), "{\"hooks\":{}}", "utf8");
+
+  const result = await executeDoctor(project, {
+    commandRunner: () => ({ ok: false, message: "not available" }),
+    homeDir,
+    tool: "codex",
+  });
+
+  assert.equal(result.changed, false);
+  assert.equal(result.checks.hostRules.status, "warn");
+  assert.match(result.checks.hostRules.message, /AGENTS\.md/);
+});

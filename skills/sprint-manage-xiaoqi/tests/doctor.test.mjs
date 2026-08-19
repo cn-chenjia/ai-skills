@@ -6,17 +6,32 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { runDoctor } from "../scripts/doctor.mjs";
+import { runDoctor as executeDoctor } from "../scripts/doctor.mjs";
+
+const homeDirs = new Map();
+
+function runtimePath(project, ...parts) {
+  return path.join(homeDirs.get(project) ?? project, ".xiaoqi", "runtime", ...parts);
+}
+
+function runDoctor(project, options = {}) {
+  return executeDoctor(project, {
+    homeDir: homeDirs.get(project) ?? options.homeDir,
+    ...options,
+  });
+}
 
 async function createProject() {
   const project = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-doctor-"));
-  await mkdir(path.join(project, ".xiaoqi", "runtime", "core"), {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-doctor-home-"));
+  homeDirs.set(project, homeDir);
+  await mkdir(runtimePath(project, "core"), {
     recursive: true,
   });
-  await mkdir(path.join(project, ".xiaoqi", "runtime", "policies"), {
+  await mkdir(runtimePath(project, "policies"), {
     recursive: true,
   });
-  await mkdir(path.join(project, ".xiaoqi", "runtime", "adapters"), {
+  await mkdir(runtimePath(project, "adapters"), {
     recursive: true,
   });
   for (const file of [
@@ -29,26 +44,28 @@ async function createProject() {
     "codex-hook.mjs",
     "trae-hook.mjs",
   ]) {
-    await writeFile(path.join(project, ".xiaoqi", "runtime", file), "// test\n");
+    await writeFile(runtimePath(project, file), "// test\n");
   }
   return project;
 }
 
 async function createProjectWithoutCodexIntegration() {
   const project = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-doctor-no-hook-"));
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-doctor-no-hook-home-"));
+  homeDirs.set(project, homeDir);
   await mkdir(path.join(project, "openspec", "changes"), { recursive: true });
   await mkdir(path.join(project, "openspec", "specs"), { recursive: true });
   await writeFile(path.join(project, "openspec", "config.yaml"), "schema: spec-driven\n");
   await mkdir(path.join(project, ".agents", "skills", "openspec-propose"), {
     recursive: true,
   });
-  await mkdir(path.join(project, ".xiaoqi", "runtime", "core"), {
+  await mkdir(runtimePath(project, "core"), {
     recursive: true,
   });
-  await mkdir(path.join(project, ".xiaoqi", "runtime", "policies"), {
+  await mkdir(runtimePath(project, "policies"), {
     recursive: true,
   });
-  await mkdir(path.join(project, ".xiaoqi", "runtime", "adapters"), {
+  await mkdir(runtimePath(project, "adapters"), {
     recursive: true,
   });
   for (const file of [
@@ -61,7 +78,7 @@ async function createProjectWithoutCodexIntegration() {
     "codex-hook.mjs",
     "trae-hook.mjs",
   ]) {
-    await writeFile(path.join(project, ".xiaoqi", "runtime", file), "// test\n");
+    await writeFile(runtimePath(project, file), "// test\n");
   }
   await mkdir(path.join(project, "sprint-manage", "requirements"), {
     recursive: true,
@@ -141,7 +158,7 @@ test("doctor warns when Trae Hook is configured but its adapter is missing", asy
     path.join(project, ".trae", "hooks.json"),
     JSON.stringify({ hooks: {} }),
   );
-  await rm(path.join(project, ".xiaoqi", "runtime", "adapters"), {
+  await rm(runtimePath(project, "adapters"), {
     recursive: true,
     force: true,
   });
@@ -172,7 +189,7 @@ test("doctor tells users to enable configured Codex and Trae Hooks", async () =>
     JSON.stringify({ hooks: {} }),
   );
   await writeFile(
-    path.join(project, ".xiaoqi", "runtime", "adapters", "trae.mjs"),
+    runtimePath(project, "adapters", "trae.mjs"),
     "// test\n",
   );
 
@@ -211,7 +228,6 @@ test("doctor recognizes local Superpowers and a valid toolchain", async () => {
   assert.equal(result.checks.superpowers.status, "pass");
   assert.equal(result.checks.runtime.status, "warn");
   assert.equal(result.checks.requirements.status, "pass");
-  assert.equal(result.checks.gitignore.status, "pass");
 });
 
 test("doctor guides missing OpenSpec skill and allows missing Superpowers skill", async () => {
@@ -262,10 +278,10 @@ test("doctor scopes checks to Trae and ignores Codex configuration", async () =>
     JSON.stringify({ hooks: {} }),
   );
   await writeFile(
-    path.join(project, ".xiaoqi", "runtime", "adapters", "trae.mjs"),
+    runtimePath(project, "adapters", "trae.mjs"),
     "// test\n",
   );
-  const homeDir = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-trae-home-"));
+  const homeDir = homeDirs.get(project);
   await mkdir(
     path.join(homeDir, ".codex", "plugins", "cache", "bundled", "superpowers"),
     { recursive: true },
@@ -283,4 +299,35 @@ test("doctor scopes checks to Trae and ignores Codex configuration", async () =>
   assert.equal(result.checks.runtime.status, "pass");
   assert.equal(result.checks.superpowersInstall.status, "warn");
   assert.match(result.checks.superpowersInstall.detail, /skill/);
+});
+
+test("doctor recognizes Superpowers installed in Trae CN global skills", async () => {
+  const project = await createProjectWithoutCodexIntegration();
+  await rm(path.join(project, ".agents", "skills", "superpowers"), {
+    recursive: true,
+    force: true,
+  });
+  await mkdir(path.join(project, ".trae"), { recursive: true });
+  await writeFile(
+    path.join(project, ".trae", "hooks.json"),
+    JSON.stringify({ hooks: {} }),
+  );
+  await writeFile(
+    runtimePath(project, "adapters", "trae.mjs"),
+    "// test\n",
+  );
+  const homeDir = homeDirs.get(project);
+  await mkdir(path.join(homeDir, ".trae-cn", "skills", "superpowers"), {
+    recursive: true,
+  });
+
+  const result = await runDoctor(project, {
+    commandRunner: () => ({ ok: true, version: "1.7.0" }),
+    homeDir,
+    tool: "trae",
+  });
+
+  assert.equal(result.checks.superpowersInstall.status, "pass");
+  assert.match(result.checks.superpowersInstall.message, /skill/);
+  assert.match(result.checks.superpowersInstall.detail, /\.trae-cn[\\/]skills/);
 });

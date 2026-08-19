@@ -8,6 +8,8 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
+import { hasManagedBlock, hostRulesPath } from "./host-rules.mjs";
+
 const RUNTIME_FILES = [
   "generic-hook.mjs",
   "lifecycle.mjs",
@@ -62,6 +64,7 @@ const SKILL_TOOL_DIRS = [
   ".claude/skills",
   ".cursor/skills",
   ".trae/skills",
+  ".trae-cn/skills",
   ".gemini/skills",
   ".github/skills",
   "skills",
@@ -178,14 +181,14 @@ function checkSkill(
   );
 }
 
-function runtimeRoots(projectRoot) {
+function runtimeRoots(projectRoot, homeDir) {
   return [
-    path.join(projectRoot, ".xiaoqi", "runtime"),
+    path.join(homeDir, ".xiaoqi", "runtime"),
     path.join(projectRoot, "skills", "sprint-manage-xiaoqi", "scripts"),
   ];
 }
 
-function checkRuntime(projectRoot, configured) {
+function checkRuntime(projectRoot, homeDir, configured) {
   if (!configured) {
     return check(
       "warn",
@@ -195,7 +198,7 @@ function checkRuntime(projectRoot, configured) {
   }
 
   const missing = [];
-  const root = runtimeRoots(projectRoot).find((candidate) => {
+  const root = runtimeRoots(projectRoot, homeDir).find((candidate) => {
     const filesExist = RUNTIME_FILES.every((name) =>
       existsSync(path.join(candidate, name)),
     );
@@ -209,7 +212,7 @@ function checkRuntime(projectRoot, configured) {
     return check("pass", "小七通用运行时可用", root);
   }
 
-  for (const candidate of runtimeRoots(projectRoot)) {
+  for (const candidate of runtimeRoots(projectRoot, homeDir)) {
     for (const name of RUNTIME_FILES) {
       if (!existsSync(path.join(candidate, name))) missing.push(name);
     }
@@ -256,11 +259,11 @@ function hasAnyHookConfig(projectRoot, tool) {
     hasJsonConfig(projectRoot, ".trae/hooks.json");
 }
 
-function adapterRoots(projectRoot) {
-  return runtimeRoots(projectRoot).map((root) => path.join(root, "adapters"));
+function adapterRoots(projectRoot, homeDir) {
+  return runtimeRoots(projectRoot, homeDir).map((root) => path.join(root, "adapters"));
 }
 
-function checkAdapter(projectRoot, { id, label, configured, active }) {
+function checkAdapter(projectRoot, homeDir, { id, label, configured, active }) {
   if (!active) {
     return check("skip", `${label} 当前工具未使用，已忽略检查`);
   }
@@ -268,11 +271,11 @@ function checkAdapter(projectRoot, { id, label, configured, active }) {
     return check(
       "warn",
       `${label} 适配器未安装，可按需启用`,
-      `安装通用运行时后可使用 .xiaoqi/runtime/adapters/${id}.mjs`,
+      `安装通用运行时后可使用用户目录下的 .xiaoqi/runtime/adapters/${id}.mjs`,
     );
   }
 
-  const adapterPath = adapterRoots(projectRoot)
+  const adapterPath = adapterRoots(projectRoot, homeDir)
     .map((root) => path.join(root, `${id}.mjs`))
     .find((candidate) => existsSync(candidate));
   return adapterPath
@@ -280,7 +283,7 @@ function checkAdapter(projectRoot, { id, label, configured, active }) {
     : check(
         "warn",
         `已检测到 ${label} Hook 配置，但 ${label} 适配器未安装`,
-        `请安装 .xiaoqi/runtime/adapters/${id}.mjs`,
+        `请安装用户目录下的 .xiaoqi/runtime/adapters/${id}.mjs`,
       );
 }
 
@@ -308,13 +311,25 @@ function checkRequirements(projectRoot) {
     : check("warn", "尚未创建需求账本目录，首次跟踪需求时再创建即可");
 }
 
-function checkGitignore(projectRoot) {
-  const filePath = path.join(projectRoot, ".gitignore");
-  if (!existsSync(filePath)) return check("warn", "缺少 .gitignore");
-  const content = readFileSync(filePath, "utf8");
-  return /(^|\r?\n)\s*\.xiaoqi\/(?:\r?\n|$)/.test(content)
-    ? check("pass", "已忽略本地运行文件")
-    : check("warn", "建议在 .gitignore 中加入 .xiaoqi/");
+function checkHostRules(projectRoot, homeDir, tool) {
+  if (tool !== "codex" && tool !== "trae") {
+    return check("skip", "未识别 Codex 或 Trae，已忽略宿主会话规则检查");
+  }
+
+  const target = hostRulesPath({
+    projectRoot,
+    tool,
+    homeDir,
+  });
+  if (existsSync(target) && hasManagedBlock(readFileSync(target, "utf8"))) {
+    return check("pass", `${tool === "codex" ? "Codex AGENTS.md" : "Trae 全局规则"} 已配置`, target);
+  }
+
+  return check(
+    "warn",
+    `${tool === "codex" ? "Codex AGENTS.md" : "Trae 全局规则"} 未配置`,
+    `请运行 node "<小七技能安装目录>/scripts/install-host-rules.mjs" "${projectRoot}" ${tool}`,
+  );
 }
 
 export async function runDoctor(
@@ -330,8 +345,8 @@ export async function runDoctor(
   const superpowersPath = findSuperpowers(projectRoot, homeDir, activeTool);
   const checks = {
     nodejs: check("pass", `Node.js 已安装（${process.version}）`, process.execPath),
-    runtime: checkRuntime(projectRoot, hasAnyHookConfig(projectRoot, activeTool)),
-    codexAdapter: checkAdapter(projectRoot, {
+    runtime: checkRuntime(projectRoot, homeDir, hasAnyHookConfig(projectRoot, activeTool)),
+    codexAdapter: checkAdapter(projectRoot, homeDir, {
       id: "codex",
       label: "Codex",
       configured: hasCodexHookConfig(projectRoot),
@@ -340,7 +355,7 @@ export async function runDoctor(
     codexHookEnable: activeTool === "codex"
       ? checkHookEnable("codex", hasCodexHookConfig(projectRoot))
       : check("skip", "Codex 当前工具未使用，已忽略检查"),
-    traeAdapter: checkAdapter(projectRoot, {
+    traeAdapter: checkAdapter(projectRoot, homeDir, {
       id: "trae",
       label: "Trae",
       configured: hasJsonConfig(projectRoot, ".trae/hooks.json"),
@@ -365,7 +380,7 @@ export async function runDoctor(
     openSpecSkill: checkSkill("openspec", "OpenSpec", projectRoot, homeDir),
     openSpecProject: checkOpenSpecProject(projectRoot),
     requirements: checkRequirements(projectRoot),
-    gitignore: checkGitignore(projectRoot),
+    hostRules: checkHostRules(projectRoot, homeDir, activeTool),
   };
   return {
     ok: Object.values(checks).every((result) => result.status !== "fail"),

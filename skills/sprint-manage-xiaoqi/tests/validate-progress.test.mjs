@@ -327,11 +327,18 @@ test("documents multi-requirement and large shared-change workflows", async () =
   assert.match(details, /write_scope/);
 });
 
-test("public documentation explains collaboration conflict prevention", async () => {
-  const description = await readFile(
-    path.join(repoRoot, "description", "skills", "sprint-manage-xiaoqi.md"),
-    "utf8",
+test("public documentation explains collaboration conflict prevention", async (context) => {
+  const descriptionPath = path.join(
+    repoRoot,
+    "description",
+    "skills",
+    "sprint-manage-xiaoqi.md",
   );
+  if (!existsSync(descriptionPath)) {
+    context.skip("public documentation is only available in the source repository");
+    return;
+  }
+  const description = await readFile(descriptionPath, "utf8");
   assert.match(description, /多人并行/);
   assert.match(description, /独立.*branch.*worktree/s);
   assert.match(description, /依赖循环|写入范围冲突/);

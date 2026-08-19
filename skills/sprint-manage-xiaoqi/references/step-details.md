@@ -20,7 +20,7 @@
 
 | 用户意图 | 推荐动作 | 主要责任方 |
 | --- | --- | --- |
-| 调查问题、比较方向 | `explore` | OpenSpec；可使用 Superpowers brainstorming 辅助对话 |
+| 调查问题、比较方向 | `explore` | OpenSpec；由小七保持流程所有权 |
 | 创建或完善 change | `propose` | OpenSpec |
 | 按 tasks 实现 | `apply` | OpenSpec 提供任务，Superpowers 提供执行纪律 |
 | 开发中需求或设计变化 | `update` | OpenSpec |
@@ -73,7 +73,7 @@ propose
 ```text
 OpenSpec explore
   -> OpenSpec propose
-  -> Superpowers writing-plans
+  -> 当前模型持续执行
   -> worktree + TDD + subagents/executing-plans
   -> 项目验证 + code review
   -> OpenSpec verify
@@ -84,10 +84,10 @@ OpenSpec explore
 
 产物规则：
 
-- brainstorming 负责澄清和批准方式，结论写入 OpenSpec artifacts。
+- OpenSpec explore 负责澄清，结论写入 OpenSpec artifacts。
 - OpenSpec tasks 保持验收级粒度。
-- Superpowers plan 从 tasks 生成，提供精确文件、测试和执行步骤。
-- plan 路径写入小七账本，并在 tasks 或 change 说明中建立回链。
+- OpenSpec tasks 直接驱动小七自动执行。
+- 不得调用独立 `writing-plans` 接管流程；内部工具执行完成后控制权必须返回小七。
 - 不创建第二套 proposal、design 或业务规格。
 
 小七只记录调用结果，不跟踪 prepare、plan、implement、review 等 Superpowers
@@ -273,3 +273,41 @@ change；否则保持一个 change，避免需求事实分散。
 2. 对未关闭需求列出 OpenSpec 状态、交付状态和阻塞。
 3. 不自动 archive 未完成 change，不伪造 finish 结果。
 4. 用户明确接受风险后，才移动迭代账本到 `sprint-manage/archive/`。
+
+## apply 与模型执行
+
+`apply` 是自动执行流程中的实施动作，不是“当前对话里手动执行一步”的指令。
+
+小七拥有流程控制权。OpenSpec、Superpowers 和项目工具仅作为内部工作能力；
+每次调用结束后，控制权必须返回小七，再由小七决定下一动作。
+
+`explore` 确认后的“确认执行”“开始执行”“方案没问题”等表达必须进入
+当前模型连续执行，不得调用独立 `writing-plans`。
+
+需求确认后，由当前模型负责：
+
+```text
+not-started
+  -> apply
+  -> coding
+  -> check
+  -> verified
+  -> review
+  -> reviewed
+  -> openspec-verify
+  -> ready
+```
+
+当需求明确或用户已经确认 `explore` 结果时，当前模型必须持续推进。只有出现人工门禁、
+`blocked` 或证据无法取得时，才暂停等待用户处理。
+## 自动修复边界
+
+测试失败、构建失败和普通 OpenSpec 校验失败属于可自动修复错误：
+
+```text
+失败 -> 分析 -> 修复 -> 重试
+```
+
+默认相同错误最多重试 3 次。修复由当前模型完成，脚本只记录次数和证据。
+评审高风险问题、权限或环境授权、破坏性操作确认和业务规则冲突，
+属于人工门禁，不应自动绕过。
