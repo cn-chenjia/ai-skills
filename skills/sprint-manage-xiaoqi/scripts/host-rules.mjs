@@ -48,6 +48,11 @@ export function managedBlock(tool) {
 - 续接消息不能重新触发普通技能匹配，也不能切换到其他技能；应结合上一轮待确认事项、当前需求账本和 OpenSpec 状态继续处理。
 - 只有用户明确输入“退出小七”才解除会话接管。
 - 上下文被压缩或恢复后，先重新读取小七技能和当前需求账本，再继续原流程。
+- 新需求先完成 propose 并等待用户确认；确认后调用 initialize-requirement.mjs 建账并记录确认人，未确认或未建账不得进入 apply、验证、评审、归档或 finish。
+- 建账后自动调用 prepare-workspace.mjs。当前工作区未被其他 active 需求占用时可登记为专属工作区，不要求额外新建 worktree。
+- 普通失败先自动修复并重试，同一错误第 3 次失败才 blocked；高风险、权限或人工确认错误可以立即 blocked。
+- 到达 ready 后停止自动流程，等待用户选择创建 PR、合并或保留分支，再执行归档和 finish。
+- 最终交付与归档证据齐全后调用 close-requirement.mjs，不能只口头宣称 closed。
 - 小七流程到达 ready、blocked 或 closed 后，按小七规则处理，不要自行改用其他技能接管同一需求。
 ${END_MARKER}
 `;

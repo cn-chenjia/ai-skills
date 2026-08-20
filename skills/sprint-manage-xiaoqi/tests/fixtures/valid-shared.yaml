@@ -52,6 +52,10 @@ updated_by: "lead"
     outcome: pending
     result: null
     summary: null
-用户决策: []
+用户决策:
+  - kind: proposal-confirmation
+    outcome: approved
+    actor: "requester"
+    at: "2026-08-11T09:55:00+08:00"
 阻塞项: []
 事件日志: []

@@ -31,6 +31,8 @@
 一旦小七被触发并定位到需求账本，小七拥有该需求的流程所有权，直到到达
 `ready`、`blocked`、`closed`，或用户明确退出小七流程。
 
+- 已有需求立即读取账本；新需求在 proposal 经用户确认后创建账本。
+- 没有账本时，不得进入实施、验证、评审、归档或收尾。
 - OpenSpec、Superpowers 和项目工具只是小七调用的内部能力。
 - 内部能力完成后，控制权必须返回小七。
 - 用户在 `explore` 后确认执行时，当前模型必须继续执行到 `ready` 或人工门禁。
@@ -107,12 +109,14 @@ Codex 规则写入项目 `AGENTS.md`，Trae 规则写入用户级全局规则。
 
 1. 定位项目根目录。
 2. 扫描并校验 `sprint-manage/requirements/<id>.yaml`。
-3. 如果存在多个需求候选，要求用户明确需求编号。
-4. 运行 `openspec list --json` 获取真实 change 列表。
+3. 运行 `openspec list --json` 获取真实 change 列表。
+4. 精确识别需求编号和 `change_id`；存在多个候选时要求用户确认。
 5. 对目标 change 运行 `openspec status --change <id> --json`。
-6. 检查 Git、测试、评审、分支和工作区证据。
-7. 识别用户意图，选择 OpenSpec 原生动作或 Superpowers 能力。
-8. 执行动作后只回写决策、阻塞、证据索引、交付状态和最近快照。
+6. 新需求先完成 `explore`（按需）和 `propose`，等待用户确认方案。
+7. 用户确认后调用 `initialize-requirement.mjs` 创建账本并记录确认人。
+8. 检查 Git、测试、评审、分支和工作区证据。
+9. 实施前自动调用 `prepare-workspace.mjs` 登记需求专属工作区。
+10. 识别用户意图并执行动作，最后只回写决策、阻塞、证据和状态。
 
 小七不能根据模糊的需求编号、文件是否存在或用户口头说“完成了”来猜测状态。
 
@@ -136,10 +140,10 @@ sprint-manage/local/session.yaml
 
 该文件不提交 Git。
 
-需求在调查和方案阶段不需要提前创建工作区。准备执行 `apply` 时，小七先运行独立的
-工作区准备步骤：首个编码需求可以使用当前目录；当前目录已经被其他编码需求占用时，
-从需求账本记录的基线分支自动创建 `.worktrees/<需求编号>`。创建成功后再继续编码，
-准备失败时不推进需求状态。
+需求在调查和方案阶段不需要提前创建工作区。准备执行 `apply` 时，小七先运行
+`prepare-workspace.mjs`：首个编码需求可以把当前目录登记为专属工作区；当前目录
+已经被其他 active 需求占用时，再创建 `.worktrees/<需求编号>`。创建成功后才能
+继续编码，准备失败时不推进需求状态。
 
 ### 单写入者规则
 
@@ -193,13 +197,18 @@ proposal / design / specs / tasks
 
 ```text
 propose
+  -> 用户确认
+  -> 自动创建账本和准备工作区
   -> apply + TDD
   -> 项目验证 + OpenSpec verify
+  -> ready
+  -> 用户选择收尾方式
   -> archive
   -> finish
 ```
 
 简单变更不等于跳过测试、验证或真实证据。
+简单变更也必须登记专属工作区，只是不要求额外新建 worktree。
 
 ### 复杂变更
 
@@ -217,9 +226,13 @@ propose
 ```text
 explore
   -> propose
+  -> 用户确认
+  -> 自动创建账本和准备工作区
   -> 当前模型持续执行
   -> worktree + TDD + 执行计划
   -> 项目验证 + review + OpenSpec verify
+  -> ready
+  -> 用户选择收尾方式
   -> sync（按需）
   -> archive
   -> finish
@@ -296,10 +309,11 @@ summary:
 
 - 当前模型根据目标、范围、验收条件和风险判断是否需要 `explore`。
 - 需求明确且低风险时，当前模型直接跳过 `explore`。
-- 存在业务歧义、范围不清或高风险变更时，使用 OpenSpec `explore` 并等待用户确认。
+- 存在业务歧义、范围不清或高风险变更时，使用 OpenSpec `explore` 澄清。
+- `propose` 完成后等待用户确认，随后自动创建账本和准备工作区。
 - 需求确认后，当前模型持续执行 tasks、修改代码、调用项目检查并处理失败。
 - 每个交付状态必须有真实证据，状态推进统一调用 `advance-progress.mjs`。
-- 到达 `ready` 后停止，等待用户提交或执行独立的 `finish`。
+- 到达 `ready` 后停止，等待用户选择创建 PR、合并或保留分支。
 
 执行循环为：
 
@@ -376,13 +390,14 @@ summary:
 
 完成项目验证、代码评审和 OpenSpec verify 后：
 
-1. 执行 OpenSpec archive，并记录真实路径和结果。
-2. 调用 Superpowers finishing-a-development-branch。
-3. 根据真实结果记录：
+1. 到达 `ready` 后等待用户选择收尾方式。
+2. 按需同步规格，然后执行 OpenSpec archive。
+3. 调用 Superpowers finishing-a-development-branch。
+4. 根据真实结果记录：
    - `pr-open`：已创建 PR。
    - `merged`：已合并。
    - `kept`：明确保留分支或工作区。
-4. archive 和 finish 都成功后，才允许将流程状态写为 `closed`。
+5. archive 和 finish 都成功后，才允许将流程状态写为 `closed`。
 
 关闭整个迭代时：
 

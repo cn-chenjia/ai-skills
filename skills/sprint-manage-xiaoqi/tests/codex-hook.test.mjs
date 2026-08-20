@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { parseProgressYaml } from "../scripts/validate-progress.mjs";
+import { normalizeCodexEvent } from "../scripts/adapters/codex.mjs";
 import { handle, hookExitCode } from "../scripts/codex-hook.mjs";
 
 const repoRoot = path.resolve(".");
@@ -37,6 +38,20 @@ test("Codex PreToolUse hook allows ordinary commands", () => {
   });
 
   assert.equal(result.continue, true);
+});
+
+test("Codex adapter preserves non-retryable failure metadata", () => {
+  const event = normalizeCodexEvent({
+    hook_event_name: "PostToolUse",
+    tool_name: "merge",
+    tool_result: {
+      exit_code: 1,
+      error: "approval required",
+      retryable: false,
+    },
+  });
+
+  assert.equal(event.result.retryable, false);
 });
 
 test("Codex SessionStart hook records the session event", async () => {

@@ -25,6 +25,7 @@ const HOOKS = new Set([
   "before-close",
 ]);
 const FINAL_DELIVERY_STATES = new Set(["pr-open", "merged", "kept"]);
+const DEFAULT_MAX_FAILURE_ATTEMPTS = 3;
 
 function fail(code, message) {
   const error = new Error(`${code}: ${message}`);
@@ -53,10 +54,39 @@ function assertBeforeAction(document, payload) {
   }
 }
 
-function assertBeforeClose(document) {
+function failureKey(payload) {
+  if (typeof payload.failure_key === "string" && payload.failure_key.trim()) {
+    return payload.failure_key.trim();
+  }
+  return `${payload.action ?? "unknown"}:${payload.summary ?? "failure"}`;
+}
+
+function nextFailureAttempt(events, key, action) {
+  let attempts = 0;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event?.kind !== "lifecycle") continue;
+    if (
+      event.hook === "after-action" &&
+      event.action === action &&
+      event.outcome === "completed"
+    ) {
+      break;
+    }
+    if (event.hook === "on-failure" && event.failure_key === key) {
+      attempts += 1;
+    }
+  }
+  return attempts + 1;
+}
+
+export function assertRequirementClosable(document) {
   const workflowKey = findKey(document, "流程");
   const deliveryKey = findKey(document, "交付");
   const evidenceKey = findKey(document, "证据");
+  if (document[workflowKey] === "closed") {
+    fail("workflow-closed", "需求已经 closed，不能重复关闭");
+  }
   if (document[workflowKey] === "blocked") {
     fail("workflow-blocked", "blocked 需求不能关闭");
   }
@@ -86,37 +116,55 @@ export function runLifecycleHook(hook, filePath, payload = {}, owner) {
     const document = parseProgressYaml(originalSource);
     const eventKey = findKey(document, "事件");
     const workflowKey = findKey(document, "流程");
+    const events = Array.isArray(document[eventKey])
+      ? document[eventKey]
+      : [];
+    let eventPayload = payload;
 
     if (hook === "before-action") assertBeforeAction(document, payload);
-    if (hook === "before-close") assertBeforeClose(document);
+    if (hook === "before-close") assertRequirementClosable(document);
     if (hook === "after-action" && !payload.outcome) {
       fail("missing-outcome", "after-action 必须提供 outcome");
     }
     if (hook === "on-failure") {
-      document[workflowKey] = "blocked";
-      const blockerKey = findKey(document, "阻塞");
-      const blockers = Array.isArray(document[blockerKey])
-        ? document[blockerKey]
-        : [];
-      blockers.push({
-        code: "lifecycle-failure",
-        summary: payload.summary ?? "生命周期动作失败",
-        since: new Date().toISOString(),
-        resume_when: "完成失败恢复条件",
-        resume_action: payload.action ?? "diagnose",
-      });
-      document[blockerKey] = blockers;
+      const key = failureKey(payload);
+      const retryable = payload.retryable !== false;
+      const attempt = nextFailureAttempt(events, key, payload.action);
+      eventPayload = {
+        ...payload,
+        failure_key: key,
+        retryable,
+        attempt,
+        max_attempts: retryable ? DEFAULT_MAX_FAILURE_ATTEMPTS : 1,
+        outcome:
+          retryable && attempt < DEFAULT_MAX_FAILURE_ATTEMPTS
+            ? "retrying"
+            : "blocked",
+      };
+
+      if (!retryable || attempt >= DEFAULT_MAX_FAILURE_ATTEMPTS) {
+        document[workflowKey] = "blocked";
+        const blockerKey = findKey(document, "阻塞");
+        const blockers = Array.isArray(document[blockerKey])
+          ? document[blockerKey]
+          : [];
+        blockers.push({
+          code: "lifecycle-failure",
+          summary: payload.summary ?? "生命周期动作失败",
+          since: new Date().toISOString(),
+          resume_when: "完成失败恢复条件",
+          resume_action: payload.action ?? "diagnose",
+        });
+        document[blockerKey] = blockers;
+      }
     }
 
-    const events = Array.isArray(document[eventKey])
-      ? document[eventKey]
-      : [];
     events.push({
       kind: "lifecycle",
       hook,
       actor: owner,
       at: new Date().toISOString(),
-      ...payload,
+      ...eventPayload,
     });
     document[eventKey] = events;
 

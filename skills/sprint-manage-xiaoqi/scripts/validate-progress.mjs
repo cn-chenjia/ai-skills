@@ -392,6 +392,29 @@ function isSuccessfulEvidence(evidence, expectedKind, expectedResult = null) {
   );
 }
 
+function isSuccessfulApplyEvidence(evidence) {
+  return (
+    evidence &&
+    typeof evidence === "object" &&
+    evidence.kind === "apply" &&
+    hasText(evidence.command) &&
+    evidence.exit_code === 0 &&
+    hasText(evidence.checked_at) &&
+    hasText(evidence.summary)
+  );
+}
+
+export function hasApprovedProposal(document) {
+  return (
+    Array.isArray(document.用户决策) &&
+    document.用户决策.some(
+      (decision) =>
+        decision?.kind === "proposal-confirmation" &&
+        decision?.outcome === "approved",
+    )
+  );
+}
+
 export function validateDeliveryTransition(document, fromStatus) {
   const issues = [];
   const toStatus = document?.交付状态;
@@ -432,6 +455,26 @@ export function validateDeliveryTransition(document, fromStatus) {
   const hasSuccessfulCheck = checks.some((item) =>
     isSuccessfulEvidence(item, "check"),
   );
+
+  if (
+    toStatus === "coding" &&
+    !isSuccessfulApplyEvidence(evidence.apply)
+  ) {
+    addIssue(
+      issues,
+      "missing-apply-evidence",
+      "证据索引.apply",
+      "进入 coding 前必须提供成功的 apply 证据",
+    );
+  }
+  if (toStatus === "coding" && !hasApprovedProposal(document)) {
+    addIssue(
+      issues,
+      "missing-proposal-confirmation",
+      "用户决策",
+      "进入 coding 前必须记录用户已确认需求方案",
+    );
+  }
 
   if (toStatus === "verified" && !hasSuccessfulCheck) {
     addIssue(
@@ -553,6 +596,17 @@ export function validateProgress(document) {
 
   validateEnum(issues, document.流程状态, WORKFLOW_STATUS_VALUES, "invalid-workflow-status", "流程状态", "流程状态");
   validateEnum(issues, document.交付状态, DELIVERY_STATUS_VALUES, "invalid-delivery-status", "交付状态", "交付状态");
+  if (
+    document.交付状态 !== "not-started" &&
+    !hasApprovedProposal(document)
+  ) {
+    addIssue(
+      issues,
+      "missing-proposal-confirmation",
+      "用户决策",
+      "进入实施后必须保留用户已确认需求方案的记录",
+    );
+  }
 
   if (!hasText(document.当前意图)) {
     addIssue(issues, "missing-current-intent", "当前意图", "当前意图不能为空");

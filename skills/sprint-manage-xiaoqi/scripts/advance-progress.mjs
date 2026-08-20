@@ -103,7 +103,9 @@ function attachEvidence(document, evidence) {
   const evidenceIndex = document[evidenceKey] ?? {};
   const next = structuredClone(evidenceIndex);
 
-  if (evidence.kind === "check") {
+  if (evidence.kind === "apply") {
+    next.apply = evidence;
+  } else if (evidence.kind === "check") {
     next.checks = Array.isArray(next.checks) ? next.checks : [];
     next.checks.push(evidence);
   } else if (evidence.kind === "review") {

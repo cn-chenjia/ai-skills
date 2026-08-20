@@ -71,7 +71,11 @@ updated_by: "alice"
     outcome: pending
     result: null
     summary: null
-用户决策: []
+用户决策:
+  - kind: proposal-confirmation
+    outcome: approved
+    actor: "requester"
+    at: "2026-08-19T10:00:00+08:00"
 阻塞项: []
 事件日志: []
 `,
@@ -86,6 +90,31 @@ function prepare(ledgerPath, projectRoot) {
     { cwd: projectRoot, encoding: "utf8" },
   );
 }
+
+test("rejects workspace preparation before the proposal is confirmed", async () => {
+  const projectRoot = await createProject();
+  const ledgerPath = await writeLedger(projectRoot, "story-1000");
+  const source = await readFile(ledgerPath, "utf8");
+  await writeFile(
+    ledgerPath,
+    source.replace(
+      `用户决策:
+  - kind: proposal-confirmation
+    outcome: approved
+    actor: "requester"
+    at: "2026-08-19T10:00:00+08:00"`,
+      "用户决策: []",
+    ),
+  );
+  git(projectRoot, "add", "sprint-manage");
+  git(projectRoot, "commit", "-m", "add unconfirmed requirement");
+
+  const result = prepare(ledgerPath, projectRoot);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /方案尚未确认/);
+  assert.equal(git(projectRoot, "branch", "--show-current"), "main");
+});
 
 test("prepares the first coding requirement in the current worktree", async () => {
   const projectRoot = await createProject();

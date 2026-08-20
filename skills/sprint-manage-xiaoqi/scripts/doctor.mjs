@@ -11,10 +11,13 @@ import { pathToFileURL } from "node:url";
 import { hasManagedBlock, hostRulesPath } from "./host-rules.mjs";
 
 const RUNTIME_FILES = [
+  "initialize-requirement.mjs",
+  "prepare-workspace.mjs",
   "generic-hook.mjs",
   "lifecycle.mjs",
   "ledger-lock.mjs",
   "advance-progress.mjs",
+  "close-requirement.mjs",
   "validate-progress.mjs",
   "guarded-run.mjs",
 ];

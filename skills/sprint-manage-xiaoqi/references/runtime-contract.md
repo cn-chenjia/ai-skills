@@ -47,7 +47,8 @@ node "<小七技能安装目录>/scripts/lifecycle.mjs" \
 - `session-start`：记录会话启动事件。
 - `before-action`：阻止 blocked 或 closed 需求继续执行。
 - `after-action`：要求记录动作结果。
-- `on-failure`：把需求置为 blocked，并记录恢复条件。
+- `on-failure`：记录同一错误的失败次数；普通错误前两次保持 active，第 3 次
+  才置为 blocked。标记为不可重试的高风险、权限或人工确认错误立即 blocked。
 - `before-close`：检查最终交付、archive 和 finish 证据。
 
 所有钩子事件都写入需求账本，并通过账本锁和 revision 提交。
@@ -69,6 +70,13 @@ Codex Hook 不是小七的强制依赖。不接入时，小七仍可通过账本
 ```text
 ~/.xiaoqi/runtime/
 ```
+
+运行时同时包含需求闭环所需的确定性入口：
+
+- `initialize-requirement.mjs`：proposal 经用户确认后创建账本并记录确认人。
+- `prepare-workspace.mjs`：准备需求分支和专属工作区。
+- `advance-progress.mjs`：按证据推进交付状态。
+- `close-requirement.mjs`：归档和收尾后写入 `closed`。
 
 `~/.xiaoqi/runtime/codex-hook.mjs` 从 stdin 读取 Codex 事件，映射到小七生命周期。它会
 阻断破坏性 Git/文件命令，并在工作区只有一个需求账本时自动发现该账本；多个需求

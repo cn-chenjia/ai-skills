@@ -19,7 +19,10 @@ import {
   releaseLedgerLock,
 } from "./ledger-lock.mjs";
 import { serializeProgressYaml } from "./advance-progress.mjs";
-import { parseProgressYaml } from "./validate-progress.mjs";
+import {
+  hasApprovedProposal,
+  parseProgressYaml,
+} from "./validate-progress.mjs";
 
 const IGNORE_LINES = [
   "sprint-manage/local/",
@@ -189,6 +192,9 @@ export function prepareWorkspace(ledgerPath, projectRoot, owner) {
   }
   if (document.协作?.负责人 !== owner) {
     throw new Error(`只有需求负责人可以准备工作区: ${document.协作?.负责人}`);
+  }
+  if (!hasApprovedProposal(document)) {
+    throw new Error("方案尚未确认，不能准备需求分支和工作区");
   }
 
   const baseBranch = detectBaseBranch(root, document.协作?.基线分支);

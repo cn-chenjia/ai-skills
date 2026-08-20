@@ -89,6 +89,7 @@ OpenSpec快照:
   checked_at: "2026-08-11T11:00:00+08:00"
 
 证据索引:
+  apply: null
   checks: []
   review: null
   archive:
@@ -99,7 +100,11 @@ OpenSpec快照:
     result: null
     summary: null
 
-用户决策: []
+用户决策:
+  - kind: "proposal-confirmation"
+    outcome: "approved"
+    actor: "requester"
+    at: "2026-08-11T10:55:00+08:00"
 阻塞项: []
 事件日志: []
 ```
@@ -115,6 +120,14 @@ OpenSpec快照:
 所有模式都必须配置负责人、需求分支和需求工作区。
 处于 explore/propose 且交付状态为 `not-started` 时，分支和工作区可以暂缺；
 进入 coding 前必须补齐。
+
+新需求的 proposal 必须先由用户确认，再创建账本。初始化时将确认结果写入
+`用户决策`；没有 `proposal-confirmation: approved` 的账本不能准备工作区或
+进入 `coding`。
+
+当前 Git 工作区可以作为一个需求的独立工作区，账本中记录为 `.`。只有当前工作区
+已经被其他 active 需求占用时，才必须创建额外 worktree。无论采用哪种形式，同一
+工作区都不能同时登记给两个 active 需求。
 
 `shared-change` 还必须：
 
@@ -225,6 +238,7 @@ ready -> pr-open | merged | kept
 
 不同状态的最低证据要求：
 
+- `coding`：成功的 `apply`。
 - `verified`：成功的 `check`。
 - `reviewed`：成功且 `result: approved` 的 `review`。
 - `ready`：成功且 `result: passed` 的 `openspec-verify`。
@@ -232,6 +246,34 @@ ready -> pr-open | merged | kept
 
 推进工具会负责加锁、重读 revision、写入事件和原子更新。校验失败时不覆盖
 账本，并释放本次锁。
+
+## 首次建账和正式关闭
+
+精确识别需求编号、名称、`change_id` 和负责人后，统一创建账本：
+
+```bash
+node "<小七技能安装目录>/scripts/initialize-requirement.mjs" \
+  "<项目根目录>" \
+  "story-1001" \
+  "订单重构" \
+  "story-1001-order-refactor" \
+  "alice" \
+  "requester"
+```
+
+该命令只在 proposal 已经得到用户确认后执行，最后一个参数是确认人。脚本不会
+覆盖已有账本。进入实施前再调用 `prepare-workspace.mjs` 登记专属分支和工作区。
+没有确认记录、账本或工作区记录时，不得进入 `coding`。
+
+最终交付状态、OpenSpec archive 和 finish 证据全部齐全后，正式关闭：
+
+```bash
+node "<小七技能安装目录>/scripts/close-requirement.mjs" \
+  sprint-manage/requirements/story-1001.yaml \
+  alice
+```
+
+关闭脚本会校验证据、写入 `closed` 事件并原子更新账本；失败时保持原文件不变。
 
 ## V3 迁移
 

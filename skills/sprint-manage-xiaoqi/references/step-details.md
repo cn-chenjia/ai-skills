@@ -42,8 +42,12 @@ CLI 命令；后者用于更新 OpenSpec instruction 文件，不能拿来修改
 
 ```text
 propose
+  -> 用户确认
+  -> initialize-requirement + prepare-workspace
   -> apply（逐任务 TDD）
   -> 项目验证 + OpenSpec verify
+  -> ready
+  -> 用户选择收尾方式
   -> archive
   -> Superpowers finish
 ```
@@ -52,7 +56,8 @@ propose
 
 1. OpenSpec proposal/design/specs/tasks 是唯一需求事实。
 2. 每个 task 内部执行失败验证、最小实现、验证通过和整理。
-3. 不强制创建独立 worktree、详细实施计划或子代理。
+3. 必须登记需求专属分支和工作区；当前工作区未被占用时可直接登记为 `.`，
+   不强制新建额外 worktree。
 4. 项目验证通过后，再运行 OpenSpec verify 检查实现与规格一致性。
 5. archive 成功后调用 finishing-a-development-branch。
 
@@ -73,10 +78,14 @@ propose
 ```text
 OpenSpec explore
   -> OpenSpec propose
+  -> 用户确认
+  -> initialize-requirement + prepare-workspace
   -> 当前模型持续执行
   -> worktree + TDD + subagents/executing-plans
   -> 项目验证 + code review
   -> OpenSpec verify
+  -> ready
+  -> 用户选择收尾方式
   -> OpenSpec sync（按需）
   -> OpenSpec archive
   -> Superpowers finish
@@ -149,14 +158,18 @@ OpenSpec verify：
 
 ### archive 和 finish
 
-1. 确认项目验证、评审和 OpenSpec verify 已满足当前风险要求。
-2. 执行 OpenSpec archive，保存真实路径和结果。
-3. 调用 finishing-a-development-branch。
-4. 根据用户选择记录：
+1. 确认项目验证、评审和 OpenSpec verify 已满足当前风险要求，状态到达 `ready`。
+2. 停止自动流程，等待用户选择创建 PR、合并或保留分支。
+3. 按需执行 OpenSpec sync。
+4. 执行 OpenSpec archive，保存真实路径和结果。
+5. 调用 finishing-a-development-branch。
+6. 根据用户选择记录：
    - 创建 PR：`pr-open`
    - 本地或远程合并：`merged`
    - 保留分支或工作区：`kept`
-5. archive 和 finish 都成功后，将流程状态写为 `closed`。
+7. archive 和 finish 都成功后，将流程状态写为 `closed`。
+
+第 7 步必须调用 `close-requirement.mjs`，不能只在对话或总结中宣称需求已关闭。
 
 `closed` 不代表一定合并，交付状态必须保留真实结果。
 
@@ -222,6 +235,8 @@ OpenSpec verify：
 完成每个质量关卡后，通过统一入口推进交付状态，不直接改 YAML：
 
 ```text
+not-started
+  -> advance + apply evidence
 coding
   -> advance + check evidence
 verified
@@ -287,6 +302,9 @@ change；否则保持一个 change，避免需求事实分散。
 需求确认后，由当前模型负责：
 
 ```text
+用户确认
+  -> initialize-requirement
+  -> prepare-workspace
 not-started
   -> apply
   -> coding

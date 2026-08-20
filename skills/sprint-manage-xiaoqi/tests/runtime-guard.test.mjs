@@ -89,20 +89,42 @@ test("lifecycle hook records session start and blocks actions for blocked work",
   );
 });
 
-test("failure hook marks work blocked and before-close requires final evidence", async () => {
+test("retryable failures block only after the third matching attempt", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-hooks-close-"));
   const file = path.join(directory, "story-1001.yaml");
   await writeFile(file, await readFile(fixturePath, "utf8"));
 
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    runLifecycleHook(
+      "on-failure",
+      file,
+      {
+        action: "verify",
+        summary: "test command failed",
+        failure_key: "verify:test-command-failed",
+      },
+      "alice",
+    );
+    const retrying = parseProgressYaml(await readFile(file, "utf8"));
+    assert.equal(retrying.流程状态, "active");
+    assert.equal(retrying.阻塞项.length, 0);
+    assert.equal(retrying.事件日志.at(-1).attempt, attempt);
+  }
+
   runLifecycleHook(
     "on-failure",
     file,
-    { action: "verify", summary: "test command failed" },
+    {
+      action: "verify",
+      summary: "test command failed",
+      failure_key: "verify:test-command-failed",
+    },
     "alice",
   );
   const blocked = parseProgressYaml(await readFile(file, "utf8"));
   assert.equal(blocked.流程状态, "blocked");
   assert.equal(blocked.阻塞项.at(-1).code, "lifecycle-failure");
+  assert.equal(blocked.事件日志.at(-1).attempt, 3);
 
   assert.throws(
     () =>
@@ -114,4 +136,26 @@ test("failure hook marks work blocked and before-close requires final evidence",
       ),
     /workflow-blocked|close-not-ready/,
   );
+});
+
+test("non-retryable failures block immediately", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-hooks-risk-"));
+  const file = path.join(directory, "story-1001.yaml");
+  await writeFile(file, await readFile(fixturePath, "utf8"));
+
+  runLifecycleHook(
+    "on-failure",
+    file,
+    {
+      action: "merge",
+      summary: "destructive operation needs approval",
+      failure_key: "merge:approval-required",
+      retryable: false,
+    },
+    "alice",
+  );
+
+  const blocked = parseProgressYaml(await readFile(file, "utf8"));
+  assert.equal(blocked.流程状态, "blocked");
+  assert.equal(blocked.事件日志.at(-1).attempt, 1);
 });

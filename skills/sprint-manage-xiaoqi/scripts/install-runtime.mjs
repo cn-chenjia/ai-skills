@@ -14,10 +14,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const runtimeFiles = [
+  "initialize-requirement.mjs",
+  "prepare-workspace.mjs",
   "generic-hook.mjs",
   "lifecycle.mjs",
   "ledger-lock.mjs",
   "advance-progress.mjs",
+  "close-requirement.mjs",
   "validate-progress.mjs",
   "guarded-run.mjs",
   "codex-hook.mjs",

@@ -30,6 +30,14 @@ function lifecyclePayload(event, outcome = undefined) {
   };
   if (action.command) payload.command = action.command;
   if (event.result) payload.result = event.result;
+  if (failedResult(event)) {
+    payload.failure_key = [
+      action.name ?? event.event,
+      event.result?.exitCode ?? "",
+      event.result?.error ?? action.summary ?? action.command ?? "failure",
+    ].join(":");
+    payload.retryable = event.result?.retryable !== false;
+  }
   if (outcome !== undefined) payload.outcome = outcome;
   return payload;
 }

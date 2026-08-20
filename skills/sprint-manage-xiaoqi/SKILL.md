@@ -57,6 +57,9 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 一旦小七被触发并定位到需求账本，小七拥有该需求的流程所有权，直到到达
 `ready`、`blocked`、`closed`，或用户明确退出小七流程。
 
+- 已有需求必须立即读取账本；新需求在 proposal 经用户确认后创建账本。
+- 没有需求账本时，不得执行 `apply`、项目验证、评审、归档或 `finish`。
+- 首次建账统一调用 `initialize-requirement.mjs`，并写入用户确认记录，不能只在对话中口头声明已跟踪。
 - OpenSpec、Superpowers 和项目工具都是小七调用的内部执行能力。
 - 内部能力完成后，控制权必须返回小七，由小七读取状态并路由下一动作。
 - 内部能力不得创建平行流程、替换小七状态、要求用户重新选择执行方式，或自行结束父流程。
@@ -140,13 +143,16 @@ explore -> propose -> apply -> update -> verify -> sync -> archive
 每次触发时：
 
 1. 定位项目根目录。
-2. 扫描并校验 `sprint-manage/requirements/<id>.yaml`；不存在时视为首次使用。
+2. 扫描并校验 `sprint-manage/requirements/<id>.yaml`。
 3. 运行 `openspec list --json` 获取真实 change 列表。
 4. 精确识别需求编号和 `change_id`；存在多个候选时询问用户。
 5. 对已存在的 change 运行 `openspec status --change <id> --json`。
-6. 检查 Git、测试、评审和分支结果等项目证据。
-7. 识别用户意图，选择 OpenSpec 原生动作或 Superpowers 能力。
-8. 执行动作后只回写决策、阻塞、证据索引、交付状态和最近快照。
+6. 账本不存在时，先完成 `explore`（按需）和 `propose`，等待用户确认方案。
+7. 用户确认后调用 `initialize-requirement.mjs` 创建 V4 账本并记录确认人。
+8. 检查 Git、测试、评审和分支结果等项目证据。
+9. 进入实施前调用 `prepare-workspace.mjs` 固化需求分支和工作区。
+10. 识别用户意图，选择 OpenSpec 原生动作或 Superpowers 能力。
+11. 执行动作后只回写决策、阻塞、证据索引、交付状态和最近快照。
 
 状态文件格式和迁移见 [references/state-contract.md](references/state-contract.md)。
 
@@ -166,6 +172,10 @@ explore -> propose -> apply -> update -> verify -> sync -> archive
 - OpenSpec `change_id`
 - branch
 - worktree
+
+“独立工作区”不等于每次都新建额外 worktree。当前 Git 工作区未被其他 active
+需求占用时，可以将它登记为该需求的专属工作区 `.`；已经被占用时，必须创建或
+复用该需求自己的额外 worktree。
 
 个人的当前需求写入 `sprint-manage/local/session.yaml`，该文件不提交 Git。
 
@@ -200,18 +210,21 @@ owner、branch、worktree、`write_scope` 和 `depends_on`。只有写入范围�
 简单变更：
 
 ```text
-propose -> apply + TDD -> 项目验证 + OpenSpec verify
-  -> archive -> finish
+propose -> 用户确认 -> initialize-requirement -> prepare-workspace
+  -> apply + TDD -> 项目验证 + OpenSpec verify -> ready
+  -> 用户选择收尾方式 -> archive -> finish
 ```
 
-不强制创建独立工作区、详细计划或子代理。
+仍须登记需求分支和专属工作区，但不强制新建额外 worktree、详细计划或子代理。
 
 复杂变更：
 
 ```text
-explore -> propose -> 当前模型持续执行
+explore -> propose -> 用户确认
+  -> initialize-requirement -> prepare-workspace -> 当前模型持续执行
   -> apply + worktree/TDD/subagents
   -> 项目验证 + review + OpenSpec verify
+  -> ready -> 用户选择收尾方式
   -> sync(按需) -> archive -> finish
 ```
 
@@ -249,6 +262,9 @@ V4 每个需求独立维护两个正交状态：
 OpenSpec 的 artifact 状态每次通过 CLI 重新读取；账本中的 `OpenSpec快照` 只是
 带时间的缓存，不能作为推进依据。
 
+`openspec validate <id> --type change --strict --json` 只能证明 change artifacts
+结构合规，不能替代实现与 proposal/design/specs/tasks 一致性的 OpenSpec verify。
+
 ## 下游结果回写
 
 调用 OpenSpec、Superpowers 或项目工具后，统一整理：
@@ -279,10 +295,15 @@ OpenSpec 的 artifact 状态每次通过 CLI 重新读取；账本中的 `OpenSp
 
 1. 当前模型根据目标、范围、验收条件和风险判断是否需要 `explore`。
 2. 需求明确且低风险时，当前模型直接跳过 `explore`。
-3. 存在业务歧义、范围不清或高风险变更时，使用 OpenSpec `explore` 并等待用户确认。
-4. 需求确认后，当前模型持续执行 OpenSpec tasks、修改代码、调用项目检查并处理失败。
-5. 每个交付状态必须有真实证据，状态推进统一调用 `advance-progress.mjs`。
-6. 到达 `ready` 后停止，等待用户提交或执行独立的 `finish`。
+3. 存在业务歧义、范围不清或高风险变更时，使用 OpenSpec `explore` 澄清。
+4. `propose` 完成后必须等待用户确认；确认结果写入新建需求账本的 `用户决策`。
+5. 用户确认后自动建账、准备专属分支和工作区，再持续执行 OpenSpec tasks。
+6. 当前模型修改代码、调用项目检查并处理失败，不在普通步骤之间反复询问。
+7. 每个交付状态必须有真实证据，状态推进统一调用 `advance-progress.mjs`。
+8. `apply` 成功后，以 `kind: apply` 证据推进到 `coding`。
+9. 到达 `ready` 后停止，等待用户选择创建 PR、合并或保留分支。
+10. 按用户选择执行可选 `sync`、`archive` 和独立的 `finish`。
+11. 最终交付状态和归档证据齐全后，调用 `close-requirement.mjs` 写入 `closed`。
 
 当前模型的执行循环是：
 
@@ -299,7 +320,8 @@ OpenSpec 的 artifact 状态每次通过 CLI 重新读取；账本中的 `OpenSp
 模型负责理解需求、修改代码、分析错误、自动修复、普通代码评审和 OpenSpec
 一致性判断。脚本负责账本锁、证据校验、状态迁移、事件记录、重试计数和危险操作拦截。
 
-`ready` 不是合并结果。`ready -> pr-open | merged | kept` 仍属于独立的收尾动作。
+`ready` 不是合并结果。到达 `ready` 后必须等待用户选择收尾方式，
+`ready -> pr-open | merged | kept` 仍属于独立的收尾动作。
 
 ### 自动修复和人工门禁
 
@@ -422,8 +444,11 @@ node "<小七技能安装目录>/scripts/doctor.mjs" "<项目根目录>"
 - [references/state-contract.md](references/state-contract.md)：V4 独立需求账本、双状态、协作元数据和迁移协议。
 - [references/step-details.md](references/step-details.md)：原生动作路由、并行协作、变更和恢复规则。
 - [scripts/validate-progress.mjs](scripts/validate-progress.mjs)：零第三方依赖的 V4 文件与目录校验器。
+- [scripts/initialize-requirement.mjs](scripts/initialize-requirement.mjs)：proposal 经用户确认后创建 V4 需求账本。
+- [scripts/prepare-workspace.mjs](scripts/prepare-workspace.mjs)：登记或创建需求专属分支和工作区。
 - [scripts/ledger-lock.mjs](scripts/ledger-lock.mjs)：账本锁和原子 revision 提交工具。
 - [scripts/advance-progress.mjs](scripts/advance-progress.mjs)：带证据的交付状态推进入口。
+- [scripts/close-requirement.mjs](scripts/close-requirement.mjs)：归档和收尾证据齐全后正式关闭需求。
 
 ## 可执行状态门禁
 
@@ -444,7 +469,7 @@ not-started -> coding -> verified -> reviewed -> ready
 ready -> pr-open | merged | kept
 ```
 
-推进时必须提供真实证据。`verified` 需要成功的 `check`，`reviewed` 需要
-`approved` 的 `review`，`ready` 需要通过的 `openspec-verify`，最终交付状态
-需要对应的 `finish`。命令会自动加锁、校验 revision、记录事件并原子更新；
-任一步骤失败都不会修改账本。
+推进时必须提供真实证据。`coding` 需要成功的 `apply`，`verified` 需要成功的
+`check`，`reviewed` 需要 `approved` 的 `review`，`ready` 需要通过的
+`openspec-verify`，最终交付状态需要对应的 `finish`。命令会自动加锁、校验
+revision、记录事件并原子更新；任一步骤失败都不会修改账本。

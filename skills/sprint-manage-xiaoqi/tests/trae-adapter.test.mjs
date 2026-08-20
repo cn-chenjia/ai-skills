@@ -62,6 +62,19 @@ test("Trae adapter accepts nested event payloads and maps failed tool results", 
   assert.equal(event.result.error, "failed");
 });
 
+test("Trae adapter preserves non-retryable failure metadata", () => {
+  const event = normalizeTraeEvent({
+    event: "PostToolUse",
+    result: {
+      exit_code: 1,
+      error: "approval required",
+      retryable: false,
+    },
+  });
+
+  assert.equal(event.result.retryable, false);
+});
+
 test("Trae adapter denies unsafe actions using Trae response fields and exit code", () => {
   const result = handleTraePayload({
     event: "PreToolUse",

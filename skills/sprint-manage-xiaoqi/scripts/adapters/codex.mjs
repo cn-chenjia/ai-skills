@@ -43,6 +43,7 @@ function resultFrom(payload) {
     ),
     exitCode: toolResult.exit_code,
     error: payload.error ?? toolResult.error,
+    retryable: toolResult.retryable ?? payload.retryable,
   };
 }
 

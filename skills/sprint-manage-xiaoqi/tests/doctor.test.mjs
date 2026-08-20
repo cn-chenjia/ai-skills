@@ -9,6 +9,19 @@ import test from "node:test";
 import { runDoctor as executeDoctor } from "../scripts/doctor.mjs";
 
 const homeDirs = new Map();
+const runtimeFiles = [
+  "initialize-requirement.mjs",
+  "prepare-workspace.mjs",
+  "generic-hook.mjs",
+  "lifecycle.mjs",
+  "ledger-lock.mjs",
+  "advance-progress.mjs",
+  "close-requirement.mjs",
+  "validate-progress.mjs",
+  "guarded-run.mjs",
+  "codex-hook.mjs",
+  "trae-hook.mjs",
+];
 
 function runtimePath(project, ...parts) {
   return path.join(homeDirs.get(project) ?? project, ".xiaoqi", "runtime", ...parts);
@@ -34,16 +47,7 @@ async function createProject() {
   await mkdir(runtimePath(project, "adapters"), {
     recursive: true,
   });
-  for (const file of [
-    "generic-hook.mjs",
-    "lifecycle.mjs",
-    "ledger-lock.mjs",
-    "advance-progress.mjs",
-    "validate-progress.mjs",
-    "guarded-run.mjs",
-    "codex-hook.mjs",
-    "trae-hook.mjs",
-  ]) {
+  for (const file of runtimeFiles) {
     await writeFile(runtimePath(project, file), "// test\n");
   }
   return project;
@@ -68,16 +72,7 @@ async function createProjectWithoutCodexIntegration() {
   await mkdir(runtimePath(project, "adapters"), {
     recursive: true,
   });
-  for (const file of [
-    "generic-hook.mjs",
-    "lifecycle.mjs",
-    "ledger-lock.mjs",
-    "advance-progress.mjs",
-    "validate-progress.mjs",
-    "guarded-run.mjs",
-    "codex-hook.mjs",
-    "trae-hook.mjs",
-  ]) {
+  for (const file of runtimeFiles) {
     await writeFile(runtimePath(project, file), "// test\n");
   }
   await mkdir(path.join(project, "sprint-manage", "requirements"), {

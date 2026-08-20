@@ -124,6 +124,7 @@ function resultFrom(payload, body) {
     ok: !(error || (Number.isInteger(exitCode) && exitCode !== 0) || result.ok === false),
     exitCode,
     error,
+    retryable: result.retryable ?? body.retryable ?? payload.retryable,
   };
 }
 

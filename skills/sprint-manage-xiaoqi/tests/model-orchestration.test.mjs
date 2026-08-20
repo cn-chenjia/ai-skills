@@ -27,6 +27,9 @@ test("uses the current model as the Xiaoqi workflow executor", async () => {
   assert.match(skill, /确认、可以、执行、继续/);
   assert.match(skill, /不能重新触发普通技能匹配或切换到其他技能/);
   assert.match(skill, /退出小七/);
+  assert.match(skill, /propose[\s\S]*用户确认[\s\S]*initialize-requirement/);
+  assert.match(skill, /到达 `ready` 后停止[\s\S]*用户选择/);
+  assert.match(skill, /相同错误最多自动修复 3 次/);
   assert.doesNotMatch(skill, /auto-runner|start-automation|actions\.json/);
   assert.doesNotMatch(skill, /brainstorming/i);
 });
@@ -43,7 +46,10 @@ test("removes standalone model-replacement executors", () => {
 
 test("keeps deterministic ledger, evidence, lifecycle, and safety scripts", () => {
   for (const name of [
+    "initialize-requirement.mjs",
+    "prepare-workspace.mjs",
     "advance-progress.mjs",
+    "close-requirement.mjs",
     "validate-progress.mjs",
     "ledger-lock.mjs",
     "lifecycle.mjs",

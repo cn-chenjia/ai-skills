@@ -53,23 +53,31 @@ test("generic runtime records session events through the shared lifecycle", asyn
   assert.equal(document.事件日志.at(-1).source, "generic-json");
 });
 
-test("generic runtime maps failed actions to lifecycle failure handling", async () => {
+test("generic runtime keeps retryable failures active until the third attempt", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-generic-failure-"));
   const ledger = path.join(directory, "story-1001.yaml");
   await writeFile(ledger, await readFile(fixture, "utf8"));
 
-  const result = handleNormalizedEvent({
-    version: 1,
-    source: "generic-json",
-    event: "after-action",
-    actor: "alice",
-    ledger,
-    action: { name: "test", summary: "test failed" },
-    result: { ok: false, exitCode: 1, error: "assertion failed" },
-  });
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const result = handleNormalizedEvent({
+      version: 1,
+      source: "generic-json",
+      event: "after-action",
+      actor: "alice",
+      ledger,
+      action: { name: "test", summary: "test failed" },
+      result: { ok: false, exitCode: 1, error: "assertion failed" },
+    });
 
-  assert.equal(result.decision, "allow");
+    assert.equal(result.decision, "allow");
+    const document = parseProgressYaml(await readFile(ledger, "utf8"));
+    assert.equal(
+      document.流程状态,
+      attempt < 3 ? "active" : "blocked",
+    );
+    assert.equal(document.事件日志.at(-1).attempt, attempt);
+  }
+
   const document = parseProgressYaml(await readFile(ledger, "utf8"));
-  assert.equal(document.流程状态, "blocked");
   assert.equal(document.阻塞项.at(-1).code, "lifecycle-failure");
 });
