@@ -132,15 +132,6 @@ function findInstalledPlugin(name, homeDir) {
   return null;
 }
 
-function findSuperpowers(projectRoot, homeDir, tool = "unknown") {
-  return (
-    (tool === "codex" || tool === "unknown"
-      ? findInstalledPlugin("superpowers", homeDir)
-      : null) ??
-    findInstalledSkill("superpowers", projectRoot, homeDir)
-  );
-}
-
 function detectTool(projectRoot, requestedTool) {
   if (requestedTool) return requestedTool.toLowerCase();
   if (existsSync(path.join(projectRoot, ".trae"))) return "trae";
@@ -158,7 +149,7 @@ function checkSkill(
   label,
   projectRoot,
   homeDir,
-  { pluginOptional = false, tool = "unknown" } = {},
+  { tool = "unknown" } = {},
 ) {
   const plugin = tool === "codex" || tool === "unknown"
     ? findInstalledPlugin(name, homeDir)
@@ -167,20 +158,33 @@ function checkSkill(
   const installed = plugin ?? skill;
   if (installed) {
     const sourceLabel = installed.source === "plugin" ? "插件" : "skill";
-    const suffix = pluginOptional && installed.source === "plugin"
-      ? "，可忽略 skill 检查"
-      : "";
-    return check("pass", `${label} 已通过 ${sourceLabel} 安装${suffix}`, installed.path);
+    return check("pass", `${label} 已通过 ${sourceLabel} 安装`, installed.path);
   }
 
   return check(
-    pluginOptional ? "warn" : "fail",
+    "fail",
     `${label} skill 未安装`,
     label === "OpenSpec"
       ? "可运行 openspec init --tools <当前工具>，或按当前工具安装对应的 openspec-* skill。"
-      : pluginOptional
-        ? "如果当前工具使用插件，可忽略；否则请按当前工具的 skill 安装方式安装。"
-        : `请按当前工具的 skill 安装方式安装 ${label}，安装后重新运行体检。`,
+      : `请按当前工具安装 ${label} skill 或插件，安装后重新运行体检。`,
+  );
+}
+
+function checkSuperpowers(projectRoot, homeDir, tool) {
+  const plugin = tool === "codex" || tool === "unknown"
+    ? findInstalledPlugin("superpowers", homeDir)
+    : null;
+  const skill = findInstalledSkill("using-superpowers", projectRoot, homeDir);
+  const installed = plugin ?? skill;
+  if (installed) {
+    const sourceLabel = installed.source === "plugin" ? "插件" : "skill";
+    return check("pass", `Superpowers 已通过 ${sourceLabel} 安装`, installed.path);
+  }
+
+  return check(
+    "fail",
+    "Superpowers skill 未安装",
+    "请按当前工具安装 Superpowers 插件，或安装平铺的 using-superpowers skill，安装后重新运行体检。",
   );
 }
 
@@ -345,7 +349,6 @@ export async function runDoctor(
 ) {
   const activeTool = detectTool(projectRoot, tool);
   const openSpecResult = commandRunner(projectRoot);
-  const superpowersPath = findSuperpowers(projectRoot, homeDir, activeTool);
   const checks = {
     nodejs: check("pass", `Node.js 已安装（${process.version}）`, process.execPath),
     runtime: checkRuntime(projectRoot, homeDir, hasAnyHookConfig(projectRoot, activeTool)),
@@ -370,16 +373,7 @@ export async function runDoctor(
     openSpec: openSpecResult.ok
       ? check("pass", `OpenSpec 可用（${openSpecResult.version ?? "版本未知"}）`)
       : check("fail", openSpecResult.message ?? "OpenSpec 不可用"),
-    superpowers: superpowersPath
-      ? check("pass", "Superpowers 已发现")
-      : check("warn", "未检测到 Superpowers，复杂研发流程可能无法使用"),
-    superpowersInstall: checkSkill(
-      "superpowers",
-      "Superpowers",
-      projectRoot,
-      homeDir,
-      { pluginOptional: true, tool: activeTool },
-    ),
+    superpowers: checkSuperpowers(projectRoot, homeDir, activeTool),
     openSpecSkill: checkSkill("openspec", "OpenSpec", projectRoot, homeDir),
     openSpecProject: checkOpenSpecProject(projectRoot),
     requirements: checkRequirements(projectRoot),

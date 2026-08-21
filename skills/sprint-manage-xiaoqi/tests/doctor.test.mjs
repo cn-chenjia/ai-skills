@@ -78,9 +78,13 @@ async function createProjectWithoutCodexIntegration() {
   await mkdir(path.join(project, "sprint-manage", "requirements"), {
     recursive: true,
   });
-  await mkdir(path.join(project, ".agents", "skills", "superpowers"), {
+  await mkdir(path.join(project, ".agents", "skills", "using-superpowers"), {
     recursive: true,
   });
+  await writeFile(
+    path.join(project, ".agents", "skills", "using-superpowers", "SKILL.md"),
+    "---\nname: using-superpowers\n---\n",
+  );
   await writeFile(path.join(project, ".gitignore"), ".xiaoqi/\n");
   return project;
 }
@@ -99,7 +103,7 @@ test("doctor reports Codex integration problems without changing files", async (
   assert.equal(result.checks.openSpec.status, "fail");
   assert.equal(result.checks.openSpecSkill.status, "fail");
   assert.equal(result.checks.openSpecProject.status, "fail");
-  assert.equal(result.checks.superpowers.status, "warn");
+  assert.equal(result.checks.superpowers.status, "fail");
 });
 
 test("doctor treats the hook runtime as optional when no Hook is configured", async () => {
@@ -143,7 +147,7 @@ test("doctor ignores missing tool-specific integration", async () => {
   assert.equal(result.checks.traeAdapter.status, "skip");
   assert.equal(result.checks.openSpecSkill.status, "pass");
   assert.equal(result.checks.openSpecProject.status, "pass");
-  assert.equal(result.checks.superpowersInstall.status, "pass");
+  assert.equal(result.checks.superpowers.status, "pass");
 });
 
 test("doctor warns when Trae Hook is configured but its adapter is missing", async () => {
@@ -206,7 +210,14 @@ test("doctor recognizes local Superpowers and a valid toolchain", async () => {
   await mkdir(path.join(project, ".agents", "skills", "openspec"), {
     recursive: true,
   });
-  await mkdir(path.join(project, ".agents", "skills", "superpowers"), {
+  await mkdir(path.join(project, ".agents", "skills", "using-superpowers"), {
+    recursive: true,
+  });
+  await writeFile(
+    path.join(project, ".agents", "skills", "using-superpowers", "SKILL.md"),
+    "---\nname: using-superpowers\n---\n",
+  );
+  await mkdir(path.join(project, ".agents", "skills", "brainstorming"), {
     recursive: true,
   });
   await mkdir(path.join(project, "sprint-manage", "requirements"), {
@@ -225,7 +236,7 @@ test("doctor recognizes local Superpowers and a valid toolchain", async () => {
   assert.equal(result.checks.requirements.status, "pass");
 });
 
-test("doctor guides missing OpenSpec skill and allows missing Superpowers skill", async () => {
+test("doctor guides missing OpenSpec and Superpowers skills", async () => {
   const project = await createProject();
   const result = await runDoctor(project, {
     commandRunner: () => ({ ok: true, version: "1.7.0" }),
@@ -234,8 +245,8 @@ test("doctor guides missing OpenSpec skill and allows missing Superpowers skill"
 
   assert.equal(result.checks.openSpecSkill.status, "fail");
   assert.match(result.checks.openSpecSkill.detail, /安装/);
-  assert.equal(result.checks.superpowersInstall.status, "warn");
-  assert.match(result.checks.superpowersInstall.detail, /插件/);
+  assert.equal(result.checks.superpowers.status, "fail");
+  assert.match(result.checks.superpowers.detail, /插件/);
   assert.equal(result.checks.openSpecProject.status, "fail");
 });
 
@@ -252,13 +263,13 @@ test("doctor accepts a Codex Superpowers plugin without a skill directory", asyn
     homeDir,
   });
 
-  assert.equal(result.checks.superpowersInstall.status, "pass");
-  assert.match(result.checks.superpowersInstall.message, /插件/);
+  assert.equal(result.checks.superpowers.status, "pass");
+  assert.match(result.checks.superpowers.message, /插件/);
 });
 
 test("doctor scopes checks to Trae and ignores Codex configuration", async () => {
   const project = await createProjectWithoutCodexIntegration();
-  await rm(path.join(project, ".agents", "skills", "superpowers"), {
+  await rm(path.join(project, ".agents", "skills", "using-superpowers"), {
     recursive: true,
     force: true,
   });
@@ -292,13 +303,13 @@ test("doctor scopes checks to Trae and ignores Codex configuration", async () =>
   assert.equal(result.checks.traeAdapter.status, "pass");
   assert.equal(result.checks.traeHookEnable.status, "pass");
   assert.equal(result.checks.runtime.status, "pass");
-  assert.equal(result.checks.superpowersInstall.status, "warn");
-  assert.match(result.checks.superpowersInstall.detail, /skill/);
+  assert.equal(result.checks.superpowers.status, "fail");
+  assert.match(result.checks.superpowers.detail, /skill/);
 });
 
 test("doctor recognizes Superpowers installed in Trae CN global skills", async () => {
   const project = await createProjectWithoutCodexIntegration();
-  await rm(path.join(project, ".agents", "skills", "superpowers"), {
+  await rm(path.join(project, ".agents", "skills", "using-superpowers"), {
     recursive: true,
     force: true,
   });
@@ -312,9 +323,13 @@ test("doctor recognizes Superpowers installed in Trae CN global skills", async (
     "// test\n",
   );
   const homeDir = homeDirs.get(project);
-  await mkdir(path.join(homeDir, ".trae-cn", "skills", "superpowers"), {
+  await mkdir(path.join(homeDir, ".trae-cn", "skills", "using-superpowers"), {
     recursive: true,
   });
+  await writeFile(
+    path.join(homeDir, ".trae-cn", "skills", "using-superpowers", "SKILL.md"),
+    "---\nname: using-superpowers\n---\n",
+  );
 
   const result = await runDoctor(project, {
     commandRunner: () => ({ ok: true, version: "1.7.0" }),
@@ -322,7 +337,7 @@ test("doctor recognizes Superpowers installed in Trae CN global skills", async (
     tool: "trae",
   });
 
-  assert.equal(result.checks.superpowersInstall.status, "pass");
-  assert.match(result.checks.superpowersInstall.message, /skill/);
-  assert.match(result.checks.superpowersInstall.detail, /\.trae-cn[\\/]skills/);
+  assert.equal(result.checks.superpowers.status, "pass");
+  assert.match(result.checks.superpowers.message, /skill/);
+  assert.match(result.checks.superpowers.detail, /\.trae-cn[\\/]skills/);
 });
