@@ -83,7 +83,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 | 开始、继续、更新、验证；普通执行失败 | [step-details.md](references/step-details.md) |
 | 多需求、多人、分支、工作区或写入范围冲突 | [collaboration.md](references/collaboration.md) |
 | 已到 `ready`；PR、合并、保留、归档、关闭需求或关闭整个迭代 | [closing.md](references/closing.md) |
-| 安装、Hook、Codex、Trae、体检或宿主异常 | [runtime-contract.md](references/runtime-contract.md) |
+| 安装、Hook、Codex、Trae、初始化检查或宿主异常 | [runtime-contract.md](references/runtime-contract.md) |
 | 底层事件或适配器数据 | [event-contract.md](references/event-contract.md) |
 
 参考文件只执行当前动作所需的规则，不拥有会话或流程控制权。它们不得直接跳转到另一份参考；需要新动作时先返回主技能。
@@ -148,5 +148,5 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 - [step-details.md](references/step-details.md)：动作选择、连续执行、验证和失败恢复。
 - [collaboration.md](references/collaboration.md)：多需求、多人、分支、工作区和写入范围冲突。
 - [closing.md](references/closing.md)：`ready` 后的用户选择、同步、归档、收尾和关闭。
-- [runtime-contract.md](references/runtime-contract.md)：Hook、宿主、安装、体检和运行时边界。
+- [runtime-contract.md](references/runtime-contract.md)：Hook、宿主、安装、初始化检查和运行时边界。
 - [event-contract.md](references/event-contract.md)：通用事件协议和适配器数据约定。
