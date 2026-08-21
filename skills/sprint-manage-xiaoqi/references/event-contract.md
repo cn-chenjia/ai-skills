@@ -1,5 +1,7 @@
 # 小七通用事件协议
 
+> 本文件只提供当前动作的操作规则，不拥有会话或流程控制权。完成或中断后必须返回 `SKILL.md`，由主技能重新读取真实状态并路由。
+
 小七将外部工具的 Hook 事件统一为一套内部事件，再交给生命周期核心处理。
 
 ## 事件格式
@@ -77,3 +79,13 @@ scripts/trae-hook.mjs
 Codex 入口输出 Codex 的 `continue`、`stopReason` 和阻断字段；Trae 入口输出
 Trae 原生的 `continue`、`stopReason` 字段。两个入口都会从 stdin 读取工具事件，
 并使用退出码 `2` 表示拒绝执行。工具自己的配置文件仍由工具侧维护。
+
+## 结果返回
+
+完成或中断当前动作后，必须把以下结果返回主技能，由主技能重新读取真实状态并决定下一动作：
+
+- `outcome`
+- `summary`
+- `evidence`
+- `blockers`
+- `recommended_next`

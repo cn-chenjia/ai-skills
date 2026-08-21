@@ -1,18 +1,16 @@
 # 小七原生动作与组合流程
 
+> 本文件只提供当前动作的操作规则，不拥有会话或流程控制权。完成或中断后必须返回 `SKILL.md`，由主技能重新读取真实状态并路由。
+
 ## 目录
 
 1. 动作路由
 2. 简单路径
 3. 复杂路径
 4. 开发中变化
-5. 验证、同步与归档
+5. 验证
 6. Bug 修复
 7. 阻塞与恢复
-8. 单人并行多个需求
-9. 多人分别开发多个需求
-10. 大型需求多人分工
-11. 迭代总览
 
 ## 动作路由
 
@@ -26,11 +24,14 @@
 | 开发中需求或设计变化 | `update` | OpenSpec |
 | 检查代码质量和规格一致性 | `verify` | 项目工具 + Superpowers + OpenSpec |
 | 提前同步变更规格 | `sync` | OpenSpec |
-| 归档 change | `archive` | OpenSpec |
-| 创建 PR、合并或保留分支 | `finish` | Superpowers |
+| 归档 change | `archive` | OpenSpec；由主技能重新路由 |
+| 创建 PR、合并或保留分支 | `finish` | Superpowers；由主技能重新路由 |
 
 `explore -> propose -> apply -> update -> verify -> sync -> archive` 是动作集合，
 不是强制阶段链。是否可执行以 OpenSpec status 和 instructions 为准。
+
+`archive` 和 `finish` 的实际收尾由主技能重新读取真实状态后路由，本参考不在
+`ready` 之后继续执行收尾动作。
 
 这里的 `update` 是 OpenSpec 的 artifact 更新工作流，不是 `openspec update`
 CLI 命令；后者用于更新 OpenSpec instruction 文件，不能拿来修改当前 change。
@@ -47,9 +48,7 @@ propose
   -> apply（逐任务 TDD）
   -> 项目验证 + OpenSpec verify
   -> ready
-  -> 用户选择收尾方式
-  -> archive
-  -> Superpowers finish
+  -> 返回主技能（recommended_next: closing）
 ```
 
 执行要求：
@@ -59,7 +58,7 @@ propose
 3. 必须登记需求专属分支和工作区；当前工作区未被占用时可直接登记为 `.`，
    不强制新建额外 worktree。
 4. 项目验证通过后，再运行 OpenSpec verify 检查实现与规格一致性。
-5. archive 成功后调用 finishing-a-development-branch。
+5. 验证结果返回主技能，由主技能决定下一动作。
 
 简单不等于跳过 TDD、验证或真实证据。
 
@@ -73,6 +72,8 @@ propose
 - 回归范围大，需要完整测试策略。
 - 存在多个可独立执行且写入范围不冲突的任务。
 
+涉及多需求、多人、分支、工作区或写入范围冲突时（包括单人并行多个需求、多人分别开发多个需求或大型需求多人分工的集成分支和 `write_scope`），返回主技能，并将 `recommended_next` 设置为抽象意图 `collaboration-conflict`，由主技能重新路由。
+
 流程：
 
 ```text
@@ -85,10 +86,7 @@ OpenSpec explore
   -> 项目验证 + code review
   -> OpenSpec verify
   -> ready
-  -> 用户选择收尾方式
-  -> OpenSpec sync（按需）
-  -> OpenSpec archive
-  -> Superpowers finish
+  -> 返回主技能（recommended_next: closing）
 ```
 
 产物规则：
@@ -121,7 +119,7 @@ OpenSpec explore
 2. 创建新的 OpenSpec change 和 `change_id`。
 3. 从 explore 或 propose 开始新的动作轮次。
 
-## 验证、同步与归档
+## 验证
 
 ### 三类验证
 
@@ -146,32 +144,9 @@ OpenSpec verify：
 
 三类验证职责不同，不能互相替代。
 
-### sync
-
-在以下情况使用 OpenSpec sync：
-
-- 需要在 archive 前让主规格提前反映变化。
-- 多个 change 需要共享最新规格。
-- OpenSpec instructions 明确推荐同步。
-
-简单、独立且即将 archive 的变更可以不单独 sync。
-
-### archive 和 finish
-
-1. 确认项目验证、评审和 OpenSpec verify 已满足当前风险要求，状态到达 `ready`。
-2. 停止自动流程，等待用户选择创建 PR、合并或保留分支。
-3. 按需执行 OpenSpec sync。
-4. 执行 OpenSpec archive，保存真实路径和结果。
-5. 调用 finishing-a-development-branch。
-6. 根据用户选择记录：
-   - 创建 PR：`pr-open`
-   - 本地或远程合并：`merged`
-   - 保留分支或工作区：`kept`
-7. archive 和 finish 都成功后，将流程状态写为 `closed`。
-
-第 7 步必须调用 `close-requirement.mjs`，不能只在对话或总结中宣称需求已关闭。
-
-`closed` 不代表一定合并，交付状态必须保留真实结果。
+确认项目验证、已批准的评审和 OpenSpec verify 已满足当前风险要求后，状态到达 `ready`。
+到达 `ready` 后停止连续执行，返回主技能，并将 `recommended_next` 指向
+抽象意图 `closing`，由主技能重新路由。
 
 ## Bug 修复
 
@@ -213,82 +188,6 @@ OpenSpec verify：
 恢复时重新运行账本校验、OpenSpec list/status 和项目探针。条件满足后移除阻塞，
 按 `resume_action` 继续；条件未满足时不反复执行失败动作。
 
-## 单人并行多个需求
-
-每个需求使用独立 OpenSpec change、branch、worktree 和
-`sprint-manage/requirements/<id>.yaml`。个人当前需求记录在本地
-`sprint-manage/local/session.yaml`，切换需求不修改共享文件。
-
-开始编码前校验整个 requirements 目录，禁止复用 branch、worktree 或冲突键。
-
-## 多人分别开发多个需求
-
-每个需求指定唯一负责人。负责人是需求账本的单写者，其他参与人不直接改账本。
-不同需求可以并行，但必须：
-
-- 使用独立 branch 和 worktree。
-- 声明 `依赖需求` 和 `冲突键`。
-- 修改同一 Spec、数据库迁移、公共接口或共享配置时先协调顺序。
-
-### 交付状态推进
-
-完成每个质量关卡后，通过统一入口推进交付状态，不直接改 YAML：
-
-```text
-not-started
-  -> advance + apply evidence
-coding
-  -> advance + check evidence
-verified
-  -> advance + approved review evidence
-reviewed
-  -> advance + passed OpenSpec verify evidence
-ready
-  -> advance + finish evidence
-pr-open | merged | kept
-```
-
-推进器会校验状态迁移和证据，自动记录事件、递增 revision 并原子写入。命令
-失败时账本保持原样，不能用手工修改状态字段绕过门禁。
-- 归档前重新检查其他 active change 对主 Spec 的影响。
-
-## 大型需求多人分工
-
-大型需求使用一个 OpenSpec change 和一个集成分支。Superpowers plan 将 tasks
-拆成并行单元，每个单元声明：
-
-```yaml
-id: "T01"
-owner: "alice"
-branch: "feature/story-2000-t01"
-worktree: ".worktrees/story-2000-t01"
-write_scope:
-  - "backend/domain/"
-depends_on: []
-```
-
-只有 `write_scope` 不重叠、依赖已满足、公共契约已稳定的单元才可并行。
-共享文件和基础契约由单一负责人先落地。子分支先合入集成分支，集成分支统一运行
-项目验证、代码评审和 OpenSpec verify，最后再 archive 和 finish。
-
-当子功能可独立上线、独立验收且修改范围不重叠时，可以拆成多个 OpenSpec
-change；否则保持一个 change，避免需求事实分散。
-
-## 迭代总览
-
-小七可以汇总多个需求，但每条状态必须来自：
-
-- 最新 OpenSpec list/status。
-- 最新项目和 Git 证据。
-- 小七账本中的阻塞、决策和证据索引。
-
-用户要求关闭整个迭代时：
-
-1. 检查所有需求流程状态是否为 `closed`。
-2. 对未关闭需求列出 OpenSpec 状态、交付状态和阻塞。
-3. 不自动 archive 未完成 change，不伪造 finish 结果。
-4. 用户明确接受风险后，才移动迭代账本到 `sprint-manage/archive/`。
-
 ## apply 与模型执行
 
 `apply` 是自动执行流程中的实施动作，不是“当前对话里手动执行一步”的指令。
@@ -329,3 +228,13 @@ not-started
 默认相同错误最多重试 3 次。修复由当前模型完成，脚本只记录次数和证据。
 评审高风险问题、权限或环境授权、破坏性操作确认和业务规则冲突，
 属于人工门禁，不应自动绕过。
+
+## 结果返回
+
+完成或中断当前动作后，必须把以下结果返回主技能，由主技能重新读取真实状态并决定下一动作：
+
+- `outcome`
+- `summary`
+- `evidence`
+- `blockers`
+- `recommended_next`

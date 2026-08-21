@@ -139,10 +139,10 @@ test("backfills proposal confirmation for an older unconfirmed ledger", async ()
 test("closes a requirement only after archive and finish evidence exist", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-close-"));
   const ledgerPath = path.join(directory, "story-1001.yaml");
-  const source = await readFile(
+  const source = (await readFile(
     path.join(testDir, "fixtures", "valid-single.yaml"),
     "utf8",
-  );
+  )).replace(/\r\n/g, "\n");
   const finalSource = source
     .replace('流程状态: "active"', '流程状态: "active"')
     .replace("交付状态: coding", "交付状态: kept")
@@ -185,10 +185,10 @@ test("keeps the workflow active when close evidence is incomplete", async () => 
 test("rejects closing an already closed requirement again", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-close-repeat-"));
   const ledgerPath = path.join(directory, "story-1001.yaml");
-  const source = await readFile(
+  const source = (await readFile(
     path.join(testDir, "fixtures", "valid-single.yaml"),
     "utf8",
-  );
+  )).replace(/\r\n/g, "\n");
   const closedSource = source
     .replace("流程状态: active", "流程状态: closed")
     .replace("交付状态: coding", "交付状态: kept")

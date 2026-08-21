@@ -1,5 +1,7 @@
 # 小七 V4 独立需求账本协议
 
+> 本文件只提供当前动作的操作规则，不拥有会话或流程控制权。完成或中断后必须返回 `SKILL.md`，由主技能重新读取真实状态并路由。
+
 ## 文件布局
 
 ```text
@@ -17,9 +19,9 @@ sprint-manage/
 - `local/session.yaml` 只记录当前用户和当前需求，必须加入 `.gitignore`，不提交 Git。
 - 旧 `sprint-progress.yaml` 迁移完成后移入 archive，不再写回。
 
-## 单写者与版本
+## 账本锁与版本
 
-每个需求账本只有 `协作.负责人` 可以写入：
+账本写入使用以下锁、revision 校验和原子更新机制：
 
 1. 运行 `ledger-lock.mjs acquire <file> <owner>` 获取锁和 token。
 2. 读取最新文件，对账 OpenSpec、Git 和项目证据。
@@ -27,8 +29,6 @@ sprint-manage/
 4. 运行 `ledger-lock.mjs commit <file> <token>`。
 5. commit 会校验账本、确认 revision 未变化、原子递增版本并释放锁。
 6. 放弃编辑时运行 `release`；锁冲突或 revision 变化时重新读取并合并。
-
-参与者不并发编辑账本，只提交代码、测试、PR 或任务结果给负责人。
 
 ## 数据结构
 
@@ -109,66 +109,13 @@ OpenSpec快照:
 事件日志: []
 ```
 
-## 协作模式
+协作字段的使用、工作区隔离和跨需求冲突需要返回主技能，并将
+`recommended_next` 设置为抽象意图 `collaboration-conflict`，由主技能映射到协作参考。
+本文件只定义账本数据和校验事实。
 
-| 模式 | 用途 |
-| --- | --- |
-| `single` | 单人负责一个需求 |
-| `independent` | 多人分别负责不同需求 |
-| `shared-change` | 一个大型需求多人分工 |
+## 协作字段校验事实
 
-所有模式都必须配置负责人、需求分支和需求工作区。
-处于 explore/propose 且交付状态为 `not-started` 时，分支和工作区可以暂缺；
-进入 coding 前必须补齐。
-
-新需求的 proposal 必须先由用户确认，再创建账本。初始化时将确认结果写入
-`用户决策`；没有 `proposal-confirmation: approved` 的账本不能准备工作区或
-进入 `coding`。
-
-当前 Git 工作区可以作为一个需求的独立工作区，账本中记录为 `.`。只有当前工作区
-已经被其他 active 需求占用时，才必须创建额外 worktree。无论采用哪种形式，同一
-工作区都不能同时登记给两个 active 需求。
-
-`shared-change` 还必须：
-
-- 配置集成分支。
-- 至少两个并行单元。
-- 每个单元拥有独立 branch 和 worktree。
-- 每个单元声明 owner、write_scope 和 depends_on。
-
-并行单元只保存协作边界，不替代 OpenSpec tasks 的完成事实。
-
-## 并发冲突
-
-目录级校验检查：
-
-- 不同需求复用 branch。
-- 不同需求复用 worktree。
-- 依赖需求不存在。
-- 两个 active 需求拥有相同冲突键。
-- 两个 active 需求的影响范围相同或互为父子路径。
-- 需求编号或 change_id 重复。
-- 任意主分支、集成分支、子分支或 worktree 被不同需求复用。
-- 需求依赖形成循环。
-
-需求级校验检查：
-
-- 并行单元 ID、branch、worktree 重复。
-- depends_on 引用不存在或形成循环。
-- write_scope 相同或互为父子路径。
-- 子任务直接使用集成分支。
-
-冲突键建议使用：
-
-```text
-db:migration
-api:<contract>
-spec:<name>
-config:<name>
-shared-file:<path>
-```
-
-检测到冲突时，选择串行、冻结契约、提前落地基础任务或指定单一负责人。
+`shared-change` 必须配置集成分支和至少两个并行单元。目录校验覆盖分支、工作区、依赖需求、冲突键、影响范围和并行单元的 `write_scope`：分支和工作区不得复用，依赖不得缺失或形成循环，active 需求的冲突键及影响范围不得冲突，`write_scope` 不得重叠或互为父子路径。需求校验还要求并行单元 ID、branch、worktree 唯一，`depends_on` 有效且无循环，且子任务不直接使用集成分支。
 
 ## 状态和闭环
 
@@ -247,7 +194,7 @@ ready -> pr-open | merged | kept
 推进工具会负责加锁、重读 revision、写入事件和原子更新。校验失败时不覆盖
 账本，并释放本次锁。
 
-## 首次建账和正式关闭
+## 首次建账
 
 精确识别需求编号、名称、`change_id` 和负责人后，统一创建账本：
 
@@ -265,15 +212,9 @@ node "<小七技能安装目录>/scripts/initialize-requirement.mjs" \
 覆盖已有账本。进入实施前再调用 `prepare-workspace.mjs` 登记专属分支和工作区。
 没有确认记录、账本或工作区记录时，不得进入 `coding`。
 
-最终交付状态、OpenSpec archive 和 finish 证据全部齐全后，正式关闭：
-
-```bash
-node "<小七技能安装目录>/scripts/close-requirement.mjs" \
-  sprint-manage/requirements/story-1001.yaml \
-  alice
-```
-
-关闭脚本会校验证据、写入 `closed` 事件并原子更新账本；失败时保持原文件不变。
+正式关闭的动作顺序和用户选择需要返回主技能，并将
+`recommended_next` 设置为抽象意图 `closing`；本文件只校验最终交付状态、archive 证据和
+finish 证据是否齐全。
 
 ## V3 迁移
 
@@ -285,3 +226,13 @@ node "<小七技能安装目录>/scripts/close-requirement.mjs" \
 6. 将 `当前需求` 写入本地 `local/session.yaml`，不进入共享账本。
 7. 保留 change_id、状态、阻塞、用户决策和证据索引。
 8. 所有需求通过目录校验后，旧文件才移入 archive。
+
+## 结果返回
+
+完成或中断当前动作后，必须把以下结果返回主技能，由主技能重新读取真实状态并决定下一动作：
+
+- `outcome`
+- `summary`
+- `evidence`
+- `blockers`
+- `recommended_next`

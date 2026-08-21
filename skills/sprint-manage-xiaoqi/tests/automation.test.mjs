@@ -106,7 +106,7 @@ test("starts apply through the automation executor instead of manual stepping", 
       calls.push(action.name);
       if (action.name === "apply") {
         return {
-          kind: "action",
+          kind: "apply",
           command: "apply",
           exit_code: 0,
           commit: "abc123",

@@ -8,7 +8,7 @@ import { runGuardedCommand } from "./guarded-run.mjs";
 
 const DEFAULT_CONFIG_PATH = ".xiaoqi/actions.json";
 const ACTION_KINDS = new Map([
-  ["apply", "action"],
+  ["apply", "apply"],
   ["check", "check"],
   ["review", "review"],
   ["openspec-verify", "openspec-verify"],

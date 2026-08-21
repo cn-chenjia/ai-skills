@@ -21,6 +21,8 @@
 | Superpowers | 提供测试驱动开发、调试、验证、评审和分支收尾方法 |
 | 项目工具 | 执行测试、构建、静态检查、Git、CI 等实际操作 |
 
+小七主技能只保留会话锁、意图判断和下一动作路由。账本、执行、协作、收尾和运行时细节会按需读取对应参考文件；参考文件处理完成后，仍由主技能继续掌控流程。
+
 核心原则：
 
 > 原生工具决定事实，小七账本只记录跨工具的决策、阻塞和证据索引。
@@ -46,9 +48,10 @@
 
 用户明确提到“小七”或要求管理研发流程后，小七会接管当前会话。后续的“确认”“执行”“继续”“好”等简短回复，都会沿用当前需求上下文，不需要重复输入“小七”。
 
-输入 `退出小七` 后，才会解除会话接管。
+只有 `退出小七` 才能解除会话接管。
 
-小七也可以处理暂停、切换需求或“先只看计划”等请求，但这些请求仍由小七记录和协调。
+小七也可以处理暂停、切换需求或“先只看计划”等请求，但这些请求只会停止或暂停自动推进，
+不解除会话接管，仍由小七记录和协调。`ready`、`blocked`、`closed` 也不解除会话接管。
 
 ## 三、快速开始
 
@@ -267,6 +270,8 @@ sprint-manage/local/session.yaml
 
 只有写入范围不重叠、依赖已满足、公共契约稳定时才允许并行。共享文件、公共接口、数据库迁移和主配置必须指定单一负责人或明确落地顺序。
 
+发现依赖循环或写入范围冲突时，小七会先停止并行安排，协调顺序或指定负责人后再继续。
+
 ## 七、开发中发生变化时
 
 需求、设计或任务在开发中变化时：
@@ -454,6 +459,8 @@ node "<小七技能安装目录>/scripts/install-codex-integration.mjs"
 - [技能主说明](../../skills/sprint-manage-xiaoqi/SKILL.md)
 - [状态与账本协议](../../skills/sprint-manage-xiaoqi/references/state-contract.md)
 - [动作和路由细节](../../skills/sprint-manage-xiaoqi/references/step-details.md)
+- [协作与工作区规则](../../skills/sprint-manage-xiaoqi/references/collaboration.md)
+- [验证后收尾规则](../../skills/sprint-manage-xiaoqi/references/closing.md)
 - [运行时接入协议](../../skills/sprint-manage-xiaoqi/references/runtime-contract.md)
 - [通用事件协议](../../skills/sprint-manage-xiaoqi/references/event-contract.md)
 

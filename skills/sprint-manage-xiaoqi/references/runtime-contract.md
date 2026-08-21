@@ -1,5 +1,7 @@
 # 小七运行时权限与生命周期协议
 
+> 本文件只提供当前动作的操作规则，不拥有会话或流程控制权。完成或中断后必须返回 `SKILL.md`，由主技能重新读取真实状态并路由。
+
 ## 受控命令执行
 
 所有由小七发起的命令，优先通过：
@@ -104,4 +106,15 @@ node "<小七技能安装目录>/scripts/generic-hook.mjs"
 ```
 
 小七不检查具体工具的 Hook 配置。初始化检查只确认通用运行时是否存在；工具侧只需
-将自身事件转换为 [event-contract.md](event-contract.md) 定义的统一 JSON。
+将自身事件转换为统一 JSON。若需处理底层事件，返回主技能，并将
+`recommended_next` 设置为抽象意图 `event-handling`，由主技能重新路由。
+
+## 结果返回
+
+完成或中断当前动作后，必须把以下结果返回主技能，由主技能重新读取真实状态并决定下一动作：
+
+- `outcome`
+- `summary`
+- `evidence`
+- `blockers`
+- `recommended_next`

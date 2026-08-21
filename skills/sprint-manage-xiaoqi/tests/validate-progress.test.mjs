@@ -342,28 +342,47 @@ test("rejects duplicate keys inside a sequence item", () => {
   );
 });
 
-test("documents isolated ledgers, local sessions, and single-writer ownership", async () => {
+test("keeps ledger and collaboration details in their focused references", async () => {
   const skill = await readFile(path.join(skillDir, "SKILL.md"), "utf8");
-  const contract = await readFile(
+  const state = await readFile(
     path.join(skillDir, "references", "state-contract.md"),
     "utf8",
   );
-  assert.match(skill, /requirements\/<id>\.yaml/);
-  assert.match(skill, /单写者/);
-  assert.match(contract, /local\/session\.yaml.*不提交/s);
-  assert.doesNotMatch(contract, /当前需求:/);
+  const collaboration = await readFile(
+    path.join(skillDir, "references", "collaboration.md"),
+    "utf8",
+  );
+
+  assert.match(
+    skill,
+    /新建、恢复、查看需求；账本或状态问题[\s\S]*references\/state-contract\.md/,
+  );
+  assert.match(
+    skill,
+    /多需求、多人、分支、工作区或写入范围冲突[\s\S]*references\/collaboration\.md/,
+  );
+  assert.match(state, /requirements\/<id>\.yaml/);
+  assert.match(state, /账本锁与版本/);
+  assert.match(state, /ledger-lock\.mjs/);
+  assert.match(state, /local\/session\.yaml.*不提交/s);
+  assert.match(collaboration, /单写者/);
+  assert.match(collaboration, /独立.*branch.*worktree/s);
+  assert.match(collaboration, /write_scope/);
+  assert.match(collaboration, /depends_on/);
+  assert.match(collaboration, /冲突键/);
+  assert.doesNotMatch(state, /当前需求:/);
 });
 
 test("documents multi-requirement and large shared-change workflows", async () => {
-  const details = await readFile(
-    path.join(skillDir, "references", "step-details.md"),
+  const collaboration = await readFile(
+    path.join(skillDir, "references", "collaboration.md"),
     "utf8",
   );
-  assert.match(details, /单人并行多个需求/);
-  assert.match(details, /多人分别开发多个需求/);
-  assert.match(details, /大型需求多人分工/);
-  assert.match(details, /集成分支/);
-  assert.match(details, /write_scope/);
+  assert.match(collaboration, /单人并行多个需求/);
+  assert.match(collaboration, /多人分别开发多个需求/);
+  assert.match(collaboration, /大型需求共享 Change/);
+  assert.match(collaboration, /集成分支/);
+  assert.match(collaboration, /write_scope/);
 });
 
 test("public documentation explains collaboration conflict prevention", async (context) => {

@@ -47,6 +47,14 @@ test("installs Trae session rules under the user rule directory", async () => {
   assert.equal(await readFile(rulesPath, "utf8"), managedBlock("trae"));
 });
 
+test("keeps stop points from releasing the session lock", () => {
+  const block = managedBlock("codex");
+
+  assert.match(block, /只有用户明确输入“退出小七”才解除会话接管/);
+  assert.match(block, /ready、blocked 或 closed 后，按小七规则处理/);
+  assert.doesNotMatch(block, /ready、blocked 或 closed[^。\n]*解除会话接管/);
+});
+
 test("doctor reports missing host rules without changing files", async () => {
   const project = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-host-rules-doctor-"));
   const homeDir = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-host-rules-doctor-home-"));
