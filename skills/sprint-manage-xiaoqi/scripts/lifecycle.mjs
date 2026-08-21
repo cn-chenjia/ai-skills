@@ -61,21 +61,18 @@ function failureKey(payload) {
   return `${payload.action ?? "unknown"}:${payload.summary ?? "failure"}`;
 }
 
-function nextFailureAttempt(events, key, action) {
+function nextFailureAttempt(events, key) {
   let attempts = 0;
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
-    if (event?.kind !== "lifecycle") continue;
     if (
-      event.hook === "after-action" &&
-      event.action === action &&
-      event.outcome === "completed"
+      event?.kind !== "lifecycle" ||
+      event.hook !== "on-failure" ||
+      event.failure_key !== key
     ) {
       break;
     }
-    if (event.hook === "on-failure" && event.failure_key === key) {
-      attempts += 1;
-    }
+    attempts += 1;
   }
   return attempts + 1;
 }
@@ -105,9 +102,31 @@ export function assertRequirementClosable(document) {
   }
 }
 
+function tryAcquireLedgerLock(filePath, owner) {
+  try {
+    return acquireLedgerLock(filePath, owner);
+  } catch (error) {
+    if (error.code === "ledger-locked") return null;
+    throw error;
+  }
+}
+
 export function runLifecycleHook(hook, filePath, payload = {}, owner) {
   if (!HOOKS.has(hook)) fail("invalid-hook", `不支持的生命周期钩子 ${hook}`);
-  const lock = acquireLedgerLock(filePath, owner);
+
+  // 成功动作不写账本，避免事件日志和 revision 随工具调用次数膨胀
+  if (hook === "after-action") {
+    if (!payload.outcome) {
+      fail("missing-outcome", "after-action 必须提供 outcome");
+    }
+    return { outcome: payload.outcome, recorded: false };
+  }
+
+  const lock = tryAcquireLedgerLock(filePath, owner);
+  if (!lock) {
+    // 账本被其他操作持锁时跳过记录；观测性记录绝不阻塞工具执行
+    return { outcome: "skipped", reason: "ledger-busy", recorded: false };
+  }
   const lockFile = `${filePath}.lock`;
   let originalSource;
 
@@ -121,15 +140,17 @@ export function runLifecycleHook(hook, filePath, payload = {}, owner) {
       : [];
     let eventPayload = payload;
 
-    if (hook === "before-action") assertBeforeAction(document, payload);
-    if (hook === "before-close") assertRequirementClosable(document);
-    if (hook === "after-action" && !payload.outcome) {
-      fail("missing-outcome", "after-action 必须提供 outcome");
+    if (hook === "before-action") {
+      // 只校验 blocked/closed 门禁，不追加事件
+      assertBeforeAction(document, payload);
+      releaseLedgerLock(filePath, lock.token);
+      return { outcome: "checked", recorded: false };
     }
+    if (hook === "before-close") assertRequirementClosable(document);
     if (hook === "on-failure") {
       const key = failureKey(payload);
       const retryable = payload.retryable !== false;
-      const attempt = nextFailureAttempt(events, key, payload.action);
+      const attempt = nextFailureAttempt(events, key);
       eventPayload = {
         ...payload,
         failure_key: key,

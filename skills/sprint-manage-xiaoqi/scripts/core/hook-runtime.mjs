@@ -50,14 +50,27 @@ function failedResult(event) {
   );
 }
 
+// 这些错误代表流程门禁（blocked/closed 需求不得继续执行），必须向上传播为 deny
+const PROPAGATABLE_HOOK_ERRORS = new Set([
+  "workflow-blocked",
+  "workflow-closed",
+  "missing-action",
+]);
+
 function record(event, hook, outcome = undefined) {
   if (!event.ledger) return;
-  runLifecycleHook(
-    hook,
-    event.ledger,
-    lifecyclePayload(event, outcome),
-    actor(event),
-  );
+  try {
+    runLifecycleHook(
+      hook,
+      event.ledger,
+      lifecyclePayload(event, outcome),
+      actor(event),
+    );
+  } catch (error) {
+    if (PROPAGATABLE_HOOK_ERRORS.has(error.code)) throw error;
+    // 观测性记录失败只告警，不阻塞工具执行
+    process.stderr.write(`xiaoqi-lifecycle-record-failed: ${error.message}\n`);
+  }
 }
 
 export function handleNormalizedEvent(input) {

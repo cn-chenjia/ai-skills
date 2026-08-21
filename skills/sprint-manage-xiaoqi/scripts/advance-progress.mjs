@@ -114,6 +114,8 @@ function attachEvidence(document, evidence) {
     next.openspec_verify = evidence;
   } else if (evidence.kind === "finish") {
     next.finish = evidence;
+  } else if (evidence.kind === "archive") {
+    next.archive = evidence;
   } else {
     throw new Error(`不支持的证据类型: ${evidence.kind}`);
   }

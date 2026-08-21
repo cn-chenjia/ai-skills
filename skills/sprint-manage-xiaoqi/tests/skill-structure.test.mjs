@@ -106,7 +106,7 @@ test("routes every focused reference from the main skill", async () => {
       "references/closing.md",
     ],
     [
-      "安装、Hook、Codex、Trae、体检或宿主异常",
+      "安装、Hook、Codex、Trae、初始化检查或宿主异常",
       "references/runtime-contract.md",
     ],
     ["底层事件或适配器数据", "references/event-contract.md"],

@@ -21,9 +21,19 @@
 
 需要在 archive 前让主规格提前反映变更、多个 change 需要共享最新规格，或 OpenSpec
 instructions 明确推荐同步时，先执行 OpenSpec sync。简单、独立且即将 archive 的变更可以
-不单独 sync。
+不单独 sync。当前安装的 openspec CLI 若没有 `sync` 子命令，直接执行 archive（archive
+自带规格同步），不要反复尝试不存在的命令。
 
 随后执行 OpenSpec archive，保存真实 archive 路径和成功结果，作为 archive 证据。
+
+archive 失败的常见原因和修复：
+
+- 主规格标题必须是英文 `## Requirements` / `## Purpose`；中文标题（如 `## 需求`、
+  `## 目的`）会导致解析器无法识别需求条目，需先把标题改为英文再重试。
+- delta 中 `## MODIFIED Requirements` 的需求必须在主规格中已存在；主规格没有对应
+  需求时改用 `## ADDED Requirements`。
+- archive 成功后用统一推进入口记录 `kind: "archive"` 证据（`path` 非空、
+  `outcome` 为 `passed`、`completed` 或 `archived`），不要手工编辑账本。
 
 ## 分支收尾
 

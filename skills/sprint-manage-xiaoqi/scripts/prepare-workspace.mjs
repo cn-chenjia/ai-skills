@@ -180,7 +180,21 @@ function updateLedger(ledgerPath, owner, changes) {
   }
 }
 
-export function prepareWorkspace(ledgerPath, projectRoot, owner) {
+export function hasBlockingChanges(projectRoot) {
+  const status = gitOutput(projectRoot, ["status", "--porcelain"]);
+  return status
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .some((line) => {
+      // untracked 的技能自身文件（账本、session 等）不阻塞切换分支
+      if (line.startsWith("?? ") && /sprint-manage\//.test(line.slice(3))) {
+        return false;
+      }
+      return true;
+    });
+}
+
+function prepareWorkspace(ledgerPath, projectRoot, owner) {
   const root = path.resolve(projectRoot);
   const ledger = path.resolve(ledgerPath);
   const gitRoot = path.resolve(gitOutput(root, ["rev-parse", "--show-toplevel"]));
@@ -225,8 +239,10 @@ export function prepareWorkspace(ledgerPath, projectRoot, owner) {
       mode = "created";
     }
   } else if (currentBranch !== branch) {
-    if (gitOutput(root, ["status", "--porcelain"])) {
-      throw new Error("当前工作区存在未提交修改，不能安全切换到需求分支");
+    if (hasBlockingChanges(root)) {
+      throw new Error(
+        "当前工作区存在未提交修改，不能安全切换到需求分支；请先提交或暂存修改，或在账本协作.分支中预填当前分支以直接登记当前工作区",
+      );
     }
     if (branchExists(root, branch)) {
       runGit(root, ["checkout", branch]);

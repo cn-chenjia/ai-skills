@@ -40,7 +40,11 @@ export function acquireLedgerLock(filePath, owner) {
     descriptor = openSync(lockPath(filePath), "wx");
     writeFileSync(descriptor, JSON.stringify(lock, null, 2), "utf8");
   } catch (error) {
-    if (error.code === "EEXIST") throw new Error(`账本已被锁定: ${filePath}`);
+    if (error.code === "EEXIST") {
+      const locked = new Error(`账本已被锁定: ${filePath}`);
+      locked.code = "ledger-locked";
+      throw locked;
+    }
     throw error;
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);

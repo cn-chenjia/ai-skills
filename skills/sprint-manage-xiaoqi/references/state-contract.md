@@ -191,6 +191,24 @@ ready -> pr-open | merged | kept
 - `ready`：成功且 `result: passed` 的 `openspec-verify`。
 - `pr-open`、`merged`、`kept`：对应结果的 `finish`。
 
+### 证据字段合法值
+
+所有证据的 `outcome` 成功值只能是 `passed`、`completed` 或 `archived`；
+`success`、`ok` 等其他值会被校验拒绝。
+
+| 证据 kind | 必需字段 | 额外约束 |
+| --- | --- | --- |
+| `apply` | `kind`、`command`、`exit_code: 0`、`checked_at`、`summary` | 不要求 `commit` 和 `result` |
+| `check` | 上述全部 + `commit` | `result` 不校验 |
+| `review` | 同 `check` | `result` 必须为 `approved` |
+| `openspec-verify` | 同 `check` | `result` 必须为 `passed` |
+| `finish` | 同 `check` | `result` 必须为 `pr-open`、`merged` 或 `kept`，且等于最终交付状态 |
+| `archive` | `path` 非空、`outcome` 为成功值 | `closed` 前必须存在 |
+
+`archive` 证据通过统一推进入口记录：OpenSpec archive 成功后，用当前交付状态
+作为目标状态再执行一次 `advance-progress.mjs`（同状态推进被允许），并传入
+`kind: "archive"` 的证据，避免手工编辑账本。
+
 推进工具会负责加锁、重读 revision、写入事件和原子更新。校验失败时不覆盖
 账本，并释放本次锁。
 
