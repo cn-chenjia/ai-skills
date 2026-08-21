@@ -51,6 +51,7 @@ test("keeps stop points from releasing the session lock", () => {
   const block = managedBlock("codex");
 
   assert.match(block, /只有用户明确输入“退出小七”才解除会话接管/);
+  assert.match(block, /未明确激活小七时，不得接管普通需求/);
   assert.match(block, /ready、blocked 或 closed 后，按小七规则处理/);
   assert.doesNotMatch(block, /ready、blocked 或 closed[^。\n]*解除会话接管/);
 });

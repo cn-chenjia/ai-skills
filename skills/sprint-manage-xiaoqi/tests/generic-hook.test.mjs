@@ -1,7 +1,7 @@
 // Owner: CJ <chenjia@fehorizon.com>
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,12 +16,24 @@ const fixture = path.resolve(
   "skills/sprint-manage-xiaoqi/tests/fixtures/valid-single.yaml",
 );
 
-test("generic runtime denies destructive commands with a normalized decision", () => {
+test("generic runtime denies destructive commands with a normalized decision", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-generic-safety-"));
+  const ledger = path.join(directory, "story-1001.yaml");
+  await writeFile(ledger, await readFile(fixture, "utf8"));
+  await mkdir(path.join(directory, "sprint-manage", "local"), { recursive: true });
+  await writeFile(
+    path.join(directory, "sprint-manage", "local", "session.yaml"),
+    "当前用户: alice\n当前需求: story-1001\n",
+    "utf8",
+  );
+
   const result = handleNormalizedEvent({
     version: 1,
     source: "generic-json",
     event: "before-action",
     actor: "alice",
+    cwd: directory,
+    ledger,
     action: {
       name: "shell",
       command: "git reset --hard HEAD",
@@ -37,6 +49,12 @@ test("generic runtime records session events through the shared lifecycle", asyn
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-generic-hook-"));
   const ledger = path.join(directory, "story-1001.yaml");
   await writeFile(ledger, await readFile(fixture, "utf8"));
+  await mkdir(path.join(directory, "sprint-manage", "local"), { recursive: true });
+  await writeFile(
+    path.join(directory, "sprint-manage", "local", "session.yaml"),
+    "当前用户: alice\n当前需求: story-1001\n",
+    "utf8",
+  );
 
   const result = handleNormalizedEvent({
     version: 1,
@@ -53,10 +71,34 @@ test("generic runtime records session events through the shared lifecycle", asyn
   assert.equal(document.事件日志.at(-1).source, "generic-json");
 });
 
+test("generic runtime bypasses ordinary sessions without a Xiaoqi session marker", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-generic-bypass-"));
+  const ledger = path.join(directory, "story-1001.yaml");
+  await writeFile(ledger, await readFile(fixture, "utf8"));
+
+  const result = handleNormalizedEvent({
+    version: 1,
+    source: "generic-json",
+    event: "before-action",
+    actor: "alice",
+    cwd: directory,
+    ledger,
+    action: { name: "shell", command: "git reset --hard HEAD" },
+  });
+
+  assert.equal(result.decision, "allow");
+});
+
 test("generic runtime keeps retryable failures active until the third attempt", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-generic-failure-"));
   const ledger = path.join(directory, "story-1001.yaml");
   await writeFile(ledger, await readFile(fixture, "utf8"));
+  await mkdir(path.join(directory, "sprint-manage", "local"), { recursive: true });
+  await writeFile(
+    path.join(directory, "sprint-manage", "local", "session.yaml"),
+    "当前用户: alice\n当前需求: story-1001\n",
+    "utf8",
+  );
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const result = handleNormalizedEvent({
@@ -64,6 +106,7 @@ test("generic runtime keeps retryable failures active until the third attempt", 
       source: "generic-json",
       event: "after-action",
       actor: "alice",
+      cwd: directory,
       ledger,
       action: { name: "test", summary: "test failed" },
       result: { ok: false, exitCode: 1, error: "assertion failed" },
