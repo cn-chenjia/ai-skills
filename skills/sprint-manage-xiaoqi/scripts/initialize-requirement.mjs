@@ -48,16 +48,6 @@ function ensureIgnoreRules(projectRoot) {
   writeFileSync(ignorePath, `${source}${prefix}${missing.join("\n")}\n`, "utf8");
 }
 
-function writeSession(projectRoot, owner, requirementId) {
-  const localDir = path.join(projectRoot, "sprint-manage", "local");
-  mkdirSync(localDir, { recursive: true });
-  writeFileSync(
-    path.join(localDir, "session.yaml"),
-    `当前用户: ${JSON.stringify(owner)}\n当前需求: ${JSON.stringify(requirementId)}\n`,
-    "utf8",
-  );
-}
-
 function newLedger(requirementId, name, changeId, owner, confirmedBy) {
   const now = new Date().toISOString();
   return {
@@ -220,7 +210,6 @@ function existingLedgerResult(
     confirmedBy,
   );
   const existing = parseProgressYaml(readFileSync(ledgerPath, "utf8"));
-  writeSession(projectRoot, owner, requirementId);
   return {
     outcome: confirmed ? "confirmed" : "existing",
     ledger: ledgerPath,
@@ -293,7 +282,6 @@ export function initializeRequirement(
     );
   }
 
-  writeSession(root, owner, requirementId);
   return {
     outcome: "created",
     ledger: ledgerPath,

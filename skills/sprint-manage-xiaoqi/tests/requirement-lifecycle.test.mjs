@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -66,12 +66,6 @@ test("initializes the first tracked requirement before implementation", async ()
   assert.equal(ledger.用户决策.at(-1).kind, "proposal-confirmation");
   assert.equal(ledger.用户决策.at(-1).outcome, "approved");
   assert.equal(ledger.用户决策.at(-1).actor, "requester");
-
-  const session = await readFile(
-    path.join(projectRoot, "sprint-manage", "local", "session.yaml"),
-    "utf8",
-  );
-  assert.match(session, /当前需求: "story-66102"/);
 
   const gitignore = await readFile(path.join(projectRoot, ".gitignore"), "utf8");
   assert.match(gitignore, /^sprint-manage\/local\/$/m);
@@ -163,6 +157,40 @@ test("closes a requirement only after archive and finish evidence exist", async 
   assert.equal(closed.流程状态, "closed");
   assert.equal(closed.交付状态, "kept");
   assert.equal(closed.事件日志.at(-1).kind, "workflow-closed");
+});
+
+test("marks the local session closed when it belongs to the closed requirement", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-close-session-"));
+  const ledgerPath = path.join(directory, "sprint-manage", "requirements", "story-1001.yaml");
+  const source = (await readFile(
+    path.join(testDir, "fixtures", "valid-single.yaml"),
+    "utf8",
+  )).replace(/\r\n/g, "\n");
+  const closable = source
+    .replace("交付状态: coding", "交付状态: kept")
+    .replace(
+      "  archive:\n    outcome: pending\n    path: null",
+      '  archive:\n    outcome: completed\n    path: "openspec/changes/archive/story-1001"',
+    )
+    .replace(
+      "  finish:\n    outcome: pending\n    result: null\n    summary: null",
+      '  finish:\n    kind: "finish"\n    command: "git status"\n    exit_code: 0\n    commit: "abc123"\n    checked_at: "2026-08-20T10:00:00+08:00"\n    outcome: completed\n    result: kept\n    summary: "本地保留"',
+    );
+  await mkdir(path.dirname(ledgerPath), { recursive: true });
+  await writeFile(ledgerPath, closable, "utf8");
+  await mkdir(path.join(directory, "sprint-manage", "local"), { recursive: true });
+  await writeFile(
+    path.join(directory, "sprint-manage", "local", "session.yaml"),
+    '当前用户: "alice"\n当前需求: "story-1001"\n',
+  );
+
+  const result = runScript(closeScript, [ledgerPath, "alice"], directory);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(
+    await readFile(path.join(directory, "sprint-manage", "local", "session.yaml"), "utf8"),
+    /会话状态: "closed"/,
+  );
 });
 
 test("keeps the workflow active when close evidence is incomplete", async () => {

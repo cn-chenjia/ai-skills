@@ -64,6 +64,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 3. 读取 OpenSpec 的最新 change 列表和目标 change 状态。
 4. 检查当前意图、最近动作、项目事实和是否存在人工门禁。
 5. 若有多个候选需求，先请求用户明确选择；不得模糊匹配。
+6. **会话锁切换检查**：读取 `sprint-manage/local/session.yaml` 的 `当前需求`，若与用户本次要处理的需求编号不一致，必须先明确告知用户"当前会话锁定的是 {{old}}，是否切换到 {{new}}？"，并检查 {{old}} 需求的 `流程状态`：若为 `active` 且未 `closed`，提示用户旧需求仍进行中；只有用户确认后才更新 session.yaml。不得静默覆盖 session。
 
 没有账本时，只能先完成需求澄清和方案确认。proposal 未获用户确认前，不得初始化账本。
 

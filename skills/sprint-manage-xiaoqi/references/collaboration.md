@@ -16,7 +16,7 @@
 
 ## 单人并行多个需求
 
-每个需求使用独立 OpenSpec change、branch、worktree 和 `sprint-manage/requirements/<id>.yaml`。个人当前需求记录在本地 `sprint-manage/local/session.yaml`，切换需求不修改共享文件。
+每个需求使用独立 OpenSpec change、branch、worktree 和 `sprint-manage/requirements/<id>.yaml`；账本在其专属 worktree 中。个人当前需求记录在该 worktree 的本地 `sprint-manage/local/session.yaml`，切换需求不会覆盖其他 worktree 的会话文件。
 
 开始编码前校验整个 requirements 目录，禁止复用 branch、worktree 或冲突键。
 

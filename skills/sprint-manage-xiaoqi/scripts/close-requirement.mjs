@@ -22,6 +22,21 @@ import {
   validateProgress,
 } from "./validate-progress.mjs";
 
+function markClosedSession(filePath, requirementId) {
+  const worktree = path.dirname(path.dirname(path.dirname(path.resolve(filePath))));
+  const sessionPath = path.join(worktree, "sprint-manage", "local", "session.yaml");
+  if (!existsSync(sessionPath)) return;
+
+  const session = readFileSync(sessionPath, "utf8");
+  const match = session.match(/^当前需求:\s*["']?([^"'\s]+)["']?\s*$/m);
+  if (!match || match[1] !== requirementId) return;
+
+  const next = /^会话状态:/m.test(session)
+    ? session.replace(/^会话状态:.*$/m, '会话状态: "closed"')
+    : `${session.endsWith("\n") ? session : `${session}\n`}会话状态: "closed"\n`;
+  writeFileSync(sessionPath, next, "utf8");
+}
+
 export function closeRequirement(filePath, owner) {
   const lock = acquireLedgerLock(filePath, owner);
   const lockFile = `${filePath}.lock`;
@@ -49,7 +64,9 @@ export function closeRequirement(filePath, owner) {
     }
 
     writeFileSync(filePath, serializeProgressYaml(document), "utf8");
-    return commitLedgerLock(filePath, lock.token);
+    const result = commitLedgerLock(filePath, lock.token);
+    markClosedSession(filePath, document.编号);
+    return result;
   } catch (error) {
     writeFileSync(filePath, original, "utf8");
     if (existsSync(lockFile)) releaseLedgerLock(filePath, lock.token);

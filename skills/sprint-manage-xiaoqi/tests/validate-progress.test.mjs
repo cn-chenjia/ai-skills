@@ -286,6 +286,7 @@ test("advance API enforces the complete evidence chain", async () => {
     checked_at: "2026-08-13T11:03:00+08:00",
     summary: "PR 已创建",
     result: "pr-open",
+    outcome: "completed",
   };
 
   advanceProgress(file, "verified", check, "alice");
@@ -322,7 +323,7 @@ test("failed advance leaves the ledger unchanged and releases its lock", async (
       },
       "alice",
     ),
-    /missing-verification-evidence/,
+    /exit_code 必须为 0/,
   );
 
   assert.equal(await readFile(file, "utf8"), before);

@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -84,7 +85,28 @@ function validateBranchName(projectRoot, branch) {
   if (result.status !== 0) throw new Error(`需求分支名称无效: ${branch}`);
 }
 
+function readProjectConfig(projectRoot) {
+  const configPath = path.join(projectRoot, ".xiaoqi", "config.yaml");
+  if (!existsSync(configPath)) return {};
+  const raw = readFileSync(configPath, "utf8");
+  const config = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const sep = trimmed.indexOf(":");
+    if (sep < 0) continue;
+    const key = trimmed.slice(0, sep).trim();
+    const value = trimmed
+      .slice(sep + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "");
+    if (key) config[key] = value;
+  }
+  return config;
+}
+
 function detectBaseBranch(projectRoot, configured) {
+  // 优先级：账本显式配置 > 项目 .xiaoqi/config.yaml > origin/HEAD > main/master 兜底
   if (configured) {
     if (!branchExists(projectRoot, configured)) {
       throw new Error(`基线分支不存在: ${configured}`);
@@ -92,12 +114,27 @@ function detectBaseBranch(projectRoot, configured) {
     return configured;
   }
 
+  const projectConfig = readProjectConfig(projectRoot);
+  if (projectConfig.baseBranch) {
+    if (!branchExists(projectRoot, projectConfig.baseBranch)) {
+      throw new Error(
+        `.xiaoqi/config.yaml 配置的基线分支不存在: ${projectConfig.baseBranch}`,
+      );
+    }
+    return projectConfig.baseBranch;
+  }
+
   const remoteHead = runGit(
     projectRoot,
     ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
     { allowFailure: true },
   );
-  if (remoteHead.status === 0) {
+  // 只在 symbolic-ref 干净返回时采用，有 broken ref 告警时跳过，不静默采用
+  if (
+    remoteHead.status === 0 &&
+    !remoteHead.stderr.includes("broken ref") &&
+    !remoteHead.stderr.includes("ignoring")
+  ) {
     const branch = remoteHead.stdout.trim().replace(/^origin\//, "");
     if (branch && branchExists(projectRoot, branch)) return branch;
   }
@@ -106,7 +143,27 @@ function detectBaseBranch(projectRoot, configured) {
     branchExists(projectRoot, branch),
   );
   if (candidates.length === 1) return candidates[0];
-  throw new Error("无法唯一确定基线分支，请在需求账本中填写协作.基线分支");
+  throw new Error(
+    "无法唯一确定基线分支，请在需求账本中填写协作.基线分支，或在项目根目录创建 .xiaoqi/config.yaml 指定 baseBranch",
+  );
+}
+
+function buildBranchName(document, projectRoot) {
+  // 优先级：账本显式配置 > 项目 .xiaoqi/config.yaml 的 branchTemplate > 默认 feature/<编号>
+  if (document.协作?.分支) return document.协作.分支;
+
+  const projectConfig = readProjectConfig(projectRoot);
+  const template = projectConfig.branchTemplate;
+  if (template) {
+    const today = new Date();
+    const date = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+    return template
+      .replace(/\{\{id\}\}/g, document.编号)
+      .replace(/\{\{date\}\}/g, date)
+      .replace(/\{\{change_id\}\}/g, document.change_id ?? document.编号);
+  }
+
+  return `feature/${document.编号}`;
 }
 
 function ensureIgnoreRules(projectRoot) {
@@ -136,31 +193,44 @@ function workspacePath(projectRoot, configured) {
 }
 
 function currentWorktreeIsOccupied(ledgerPath, projectRoot, currentBranch) {
-  const requirementsDir = path.dirname(ledgerPath);
-  for (const name of readdirSync(requirementsDir)) {
-    if (!/\.ya?ml$/i.test(name)) continue;
-    const candidatePath = path.join(requirementsDir, name);
-    if (path.resolve(candidatePath) === path.resolve(ledgerPath)) continue;
-    const candidate = parseProgressYaml(readFileSync(candidatePath, "utf8"));
-    if (
-      candidate.流程状态 !== "active" ||
-      candidate.交付状态 === "not-started"
-    ) {
-      continue;
-    }
-    const collaboration = candidate.协作 ?? {};
-    if (
-      collaboration.分支 === currentBranch ||
-      workspacePath(projectRoot, collaboration.工作区) === projectRoot
-    ) {
-      return true;
+  for (const tree of listWorktrees(projectRoot)) {
+    if (!tree.path) continue;
+    const requirementsDir = path.join(tree.path, "sprint-manage", "requirements");
+    if (!existsSync(requirementsDir)) continue;
+    for (const name of readdirSync(requirementsDir)) {
+      if (!/\.ya?ml$/i.test(name)) continue;
+      const candidatePath = path.join(requirementsDir, name);
+      if (path.resolve(candidatePath) === path.resolve(ledgerPath)) continue;
+      const candidate = parseProgressYaml(readFileSync(candidatePath, "utf8"));
+      if (
+        candidate.流程状态 !== "active" ||
+        candidate.交付状态 === "not-started"
+      ) {
+        continue;
+      }
+      if (
+        tree.branch === currentBranch ||
+        comparablePath(tree.path) === comparablePath(projectRoot)
+      ) {
+        return true;
+      }
     }
   }
   return false;
 }
 
-function relativeWorkspace(projectRoot, worktree) {
-  return path.relative(projectRoot, worktree).split(path.sep).join("/");
+function moveLedgerToWorktree(ledgerPath, worktree) {
+  const target = path.join(
+    worktree,
+    "sprint-manage",
+    "requirements",
+    path.basename(ledgerPath),
+  );
+  if (path.resolve(ledgerPath) === path.resolve(target)) return ledgerPath;
+  if (existsSync(target)) return target;
+  mkdirSync(path.dirname(target), { recursive: true });
+  renameSync(ledgerPath, target);
+  return target;
 }
 
 function updateLedger(ledgerPath, owner, changes) {
@@ -212,9 +282,22 @@ function prepareWorkspace(ledgerPath, projectRoot, owner) {
   }
 
   const baseBranch = detectBaseBranch(root, document.协作?.基线分支);
-  const branch = document.协作?.分支 || `codex/${document.编号}`;
+  const branch = buildBranchName(document, root);
   validateBranchName(root, branch);
   const currentBranch = gitOutput(root, ["branch", "--show-current"]);
+
+  // 检测当前分支与账本规划不一致时，若当前分支既非基线也非规划分支，给出明确提示
+  if (
+    currentBranch !== branch &&
+    currentBranch !== baseBranch &&
+    !document.协作?.分支 // 账本未显式指定分支时，用户可能在不知情下自建分支
+  ) {
+    console.warn(
+      `[提示] 当前在分支 ${currentBranch}，账本规划使用 ${branch}（从 .xiaoqi/config.yaml 或默认规则生成）。` +
+        `若要使用当前分支，请在账本 协作.分支 中显式填写 ${currentBranch}。`,
+    );
+  }
+
   const occupied = currentWorktreeIsOccupied(ledger, root, currentBranch);
   let worktree = root;
   let mode = "current";
@@ -252,17 +335,18 @@ function prepareWorkspace(ledgerPath, projectRoot, owner) {
   }
 
   ensureIgnoreRules(root);
-  updateLedger(ledger, owner, {
+  const targetLedger = moveLedgerToWorktree(ledger, worktree);
+  updateLedger(targetLedger, owner, {
     基线分支: baseBranch,
     分支: branch,
-    工作区: mode === "current" ? "." : relativeWorkspace(root, worktree),
+    工作区: ".",
   });
   writeSession(worktree, owner, document.编号);
 
   return {
     outcome: "completed",
     mode,
-    ledger,
+    ledger: targetLedger,
     baseBranch,
     branch,
     worktree,

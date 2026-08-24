@@ -5,18 +5,17 @@
 ## 文件布局
 
 ```text
-sprint-manage/
-  requirements/
-    story-1001.yaml
-    story-1002.yaml
-  local/
-    session.yaml
-  archive/
+每个需求工作区/
+  sprint-manage/
+    requirements/
+      <id>.yaml
+    local/
+      session.yaml
 ```
 
-- 每个需求独立一个 `requirements/<id>.yaml`。
-- 小七扫描目录生成总览，不维护共享 index。
-- `local/session.yaml` 只记录当前用户和当前需求，必须加入 `.gitignore`，不提交 Git。
+- 每个需求工作区持有该需求的 `requirements/<id>.yaml`，账本随需求分支和 worktree 隔离。
+- `local/session.yaml` 记录当前用户、当前需求和可选的本地会话状态，必须加入 `.gitignore`，不提交 Git。
+- 创建账本时不得覆盖当前工作区的 session；`prepare-workspace` 确定目标 worktree 并移入账本后，才在目标工作区写入 session。
 - 旧 `sprint-progress.yaml` 迁移完成后移入 archive，不再写回。
 
 ## 账本锁与版本
@@ -198,16 +197,62 @@ ready -> pr-open | merged | kept
 
 | 证据 kind | 必需字段 | 额外约束 |
 | --- | --- | --- |
-| `apply` | `kind`、`command`、`exit_code: 0`、`checked_at`、`summary` | 不要求 `commit` 和 `result` |
+| `apply` | `kind`、`command`、`exit_code: 0`、`checked_at`、`summary` | 不要求 `commit` 和 `result`；`commit` 缺失时自动回填当前 HEAD |
 | `check` | 上述全部 + `commit` | `result` 不校验 |
 | `review` | 同 `check` | `result` 必须为 `approved` |
 | `openspec-verify` | 同 `check` | `result` 必须为 `passed` |
-| `finish` | 同 `check` | `result` 必须为 `pr-open`、`merged` 或 `kept`，且等于最终交付状态 |
-| `archive` | `path` 非空、`outcome` 为成功值 | `closed` 前必须存在 |
+| `finish` | 同 `check` + `outcome` | `result` 必须为 `pr-open`、`merged` 或 `kept`，且等于最终交付状态；`outcome` 必须为 `passed`/`completed`/`archived` |
+| `archive` | `kind`、`command`、`exit_code: 0`、`checked_at`、`summary`、`path` 非空、`outcome` 为成功值 | `closed` 前必须存在 |
 
-`archive` 证据通过统一推进入口记录：OpenSpec archive 成功后，用当前交付状态
-作为目标状态再执行一次 `advance-progress.mjs`（同状态推进被允许），并传入
-`kind: "archive"` 的证据，避免手工编辑账本。
+### 证据 schema 强校验
+
+`advance-progress.mjs` 与 `record-evidence.mjs` 在写入账本前都会先做证据 schema 校验：
+- 必需字段缺失立即拒绝，报错信息列出缺失字段
+- `exit_code` 必须为 `0`，非 0 直接拒绝
+- `review.result` 必须为 `approved`，`openspec-verify.result` 必须为 `passed`
+- `finish.result` 必须等于目标交付状态，且 `outcome` 必须为成功值
+
+校验失败时不进入加锁流程，避免账本被部分写入。
+
+### apply 证据 commit 自动回填
+
+`apply` 证据不强制要求 `commit` 字段。若未提供，`advance-progress.mjs` 会自动执行
+`git rev-parse HEAD` 回填当前 HEAD 的 commit 到证据和事件日志，避免 `delivery-transition`
+事件的 `commit` 字段为 `null`。
+
+### archive 证据的两种记录方式
+
+1. **推荐**：用 `record-evidence.mjs` 只记录证据到账本证据索引，不推进交付状态，避免
+   `ready → ready` 的自环迁移事件：
+
+   ```bash
+   node "<小七技能安装目录>/scripts/record-evidence.mjs" \
+     sprint-manage/requirements/story-1001.yaml \
+     evidence/archive.json \
+     alice
+   ```
+
+2. **兼容**：仍可用 `advance-progress.mjs` 以当前交付状态为目标状态再推进一次
+   （同状态推进被允许），并传入 `kind: "archive"` 的证据。这会产生一条 `ready → ready`
+   的自环迁移事件，但不影响最终交付状态。
+
+`finish` 证据不能用 `record-evidence.mjs`，必须通过 `advance-progress.mjs` 推进交付状态。
+
+### dry-run 预演
+
+`advance-progress.mjs` 支持 `--dry-run` 参数，只校验证据 schema 和状态迁移合法性，
+不实际写入账本，便于预演：
+
+```bash
+node "<小七技能安装目录>/scripts/advance-progress.mjs" \
+  sprint-manage/requirements/story-1001.yaml \
+  verified \
+  evidence/check.json \
+  alice \
+  --dry-run
+```
+
+返回 `{ wouldSucceed: true/false, transitionIssues: [...], validationIssues: [...] }`。
 
 推进工具会负责加锁、重读 revision、写入事件和原子更新。校验失败时不覆盖
 账本，并释放本次锁。
@@ -229,6 +274,31 @@ node "<小七技能安装目录>/scripts/initialize-requirement.mjs" \
 该命令只在 proposal 已经得到用户确认后执行，最后一个参数是确认人。脚本不会
 覆盖已有账本。进入实施前再调用 `prepare-workspace.mjs` 登记专属分支和工作区。
 没有确认记录、账本或工作区记录时，不得进入 `coding`。
+
+### 项目级配置文件（可选）
+
+在项目根目录创建 `.xiaoqi/config.yaml` 可覆盖默认的基线分支检测和分支命名规则：
+
+```yaml
+# .xiaoqi/config.yaml
+baseBranch: develop
+# 分支模板支持占位符：{{id}}（需求编号）、{{date}}（YYYYMMDD）、{{change_id}}
+branchTemplate: feature/{{date}}/story-{{id}}
+```
+
+`prepare-workspace.mjs` 的基线分支检测优先级：
+1. 账本 `协作.基线分支` 显式配置
+2. `.xiaoqi/config.yaml` 的 `baseBranch`
+3. `origin/HEAD` 指向的分支（**有 broken ref 告警时跳过**）
+4. 本地 `main` 或 `master`（唯一存在时）
+
+分支命名优先级：
+1. 账本 `协作.分支` 显式配置
+2. `.xiaoqi/config.yaml` 的 `branchTemplate`
+3. 默认 `codex/<编号>`
+
+若当前所在分支既非基线也非账本规划分支，且账本未显式指定分支，
+`prepare-workspace.mjs` 会打印提示，建议用户在账本中显式填写分支。
 
 正式关闭的动作顺序和用户选择需要返回主技能，并将
 `recommended_next` 设置为抽象意图 `closing`；本文件只校验最终交付状态、archive 证据和

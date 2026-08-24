@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -128,13 +128,13 @@ test("prepares the first coding requirement in the current worktree", async () =
   const output = JSON.parse(result.stdout);
   assert.equal(output.mode, "current");
   assert.equal(path.resolve(output.worktree), projectRoot);
-  assert.equal(output.branch, "codex/story-1001");
+  assert.equal(output.branch, "feature/story-1001");
   assert.equal(output.baseBranch, "main");
-  assert.equal(git(projectRoot, "branch", "--show-current"), "codex/story-1001");
+  assert.equal(git(projectRoot, "branch", "--show-current"), "feature/story-1001");
 
   const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
   assert.equal(ledger.协作.基线分支, "main");
-  assert.equal(ledger.协作.分支, "codex/story-1001");
+  assert.equal(ledger.协作.分支, "feature/story-1001");
   assert.equal(ledger.协作.工作区, ".");
   assert.equal(ledger.交付状态, "not-started");
 
@@ -154,7 +154,55 @@ test("prepares the first coding requirement in the current worktree", async () =
 test("creates a separate worktree for a second coding requirement", async () => {
   const projectRoot = await createProject();
   const firstLedger = await writeLedger(projectRoot, "story-1001");
+  const firstSource = await readFile(firstLedger, "utf8");
+  await writeFile(
+    firstLedger,
+    firstSource
+      .replace("交付状态: not-started", "交付状态: coding")
+      .replace("  基线分支: null", '  基线分支: "main"')
+      .replace("  分支: null", '  分支: "feature/story-1001"')
+      .replace("  工作区: null", '  工作区: "."'),
+  );
+  git(projectRoot, "add", "sprint-manage");
+  git(projectRoot, "commit", "-m", "add active requirement");
+  git(projectRoot, "checkout", "-b", "feature/story-1001");
   const secondLedger = await writeLedger(projectRoot, "story-1002");
+
+  const result = prepare(secondLedger, projectRoot);
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  const expectedWorktree = path.join(projectRoot, ".worktrees", "story-1002");
+  const targetLedger = path.join(
+    expectedWorktree,
+    "sprint-manage",
+    "requirements",
+    "story-1002.yaml",
+  );
+  assert.equal(output.mode, "created");
+  assert.equal(path.resolve(output.worktree), expectedWorktree);
+  assert.equal(output.branch, "feature/story-1002");
+  assert.equal(output.baseBranch, "main");
+  assert.equal(git(projectRoot, "branch", "--show-current"), "feature/story-1001");
+  assert.equal(git(expectedWorktree, "branch", "--show-current"), "feature/story-1002");
+  assert.equal(existsSync(secondLedger), false);
+
+  const ledger = parseProgressYaml(await readFile(targetLedger, "utf8"));
+  assert.equal(ledger.协作.基线分支, "main");
+  assert.equal(ledger.协作.分支, "feature/story-1002");
+  assert.equal(ledger.协作.工作区, ".");
+  assert.equal(ledger.交付状态, "not-started");
+
+  const session = readFileSync(
+    path.join(expectedWorktree, "sprint-manage", "local", "session.yaml"),
+    "utf8",
+  );
+  assert.match(session, /当前需求: "story-1002"/);
+});
+
+test("moves an uncommitted second ledger into its isolated worktree without replacing the active session", async () => {
+  const projectRoot = await createProject();
+  const firstLedger = await writeLedger(projectRoot, "story-1001");
   const firstSource = await readFile(firstLedger, "utf8");
   await writeFile(
     firstLedger,
@@ -164,46 +212,39 @@ test("creates a separate worktree for a second coding requirement", async () => 
       .replace("  分支: null", '  分支: "codex/story-1001"')
       .replace("  工作区: null", '  工作区: "."'),
   );
-  git(projectRoot, "add", "sprint-manage");
-  git(projectRoot, "commit", "-m", "add parallel requirements");
+  git(projectRoot, "add", "sprint-manage/requirements/story-1001.yaml");
+  git(projectRoot, "commit", "-m", "add active requirement");
   git(projectRoot, "checkout", "-b", "codex/story-1001");
+  await mkdir(path.join(projectRoot, "sprint-manage", "local"), { recursive: true });
+  await writeFile(
+    path.join(projectRoot, "sprint-manage", "local", "session.yaml"),
+    '当前用户: "alice"\n当前需求: "story-1001"\n',
+  );
+  const secondLedger = await writeLedger(projectRoot, "story-1002");
 
   const result = prepare(secondLedger, projectRoot);
 
   assert.equal(result.status, 0, result.stderr);
-  const output = JSON.parse(result.stdout);
-  const expectedWorktree = path.join(
-    projectRoot,
-    ".worktrees",
-    "story-1002",
+  const worktree = path.join(projectRoot, ".worktrees", "story-1002");
+  const targetLedger = path.join(
+    worktree,
+    "sprint-manage",
+    "requirements",
+    "story-1002.yaml",
   );
-  assert.equal(output.mode, "created");
-  assert.equal(path.resolve(output.worktree), expectedWorktree);
-  assert.equal(output.branch, "codex/story-1002");
-  assert.equal(output.baseBranch, "main");
-  assert.equal(git(projectRoot, "branch", "--show-current"), "codex/story-1001");
-  assert.equal(
-    git(expectedWorktree, "branch", "--show-current"),
-    "codex/story-1002",
+  assert.equal(existsSync(secondLedger), false);
+  assert.equal(existsSync(targetLedger), true);
+  assert.match(
+    await readFile(path.join(projectRoot, "sprint-manage", "local", "session.yaml"), "utf8"),
+    /当前需求: "story-1001"/,
   );
-
-  const ledger = parseProgressYaml(await readFile(secondLedger, "utf8"));
-  assert.equal(ledger.协作.基线分支, "main");
-  assert.equal(ledger.协作.分支, "codex/story-1002");
-  assert.equal(ledger.协作.工作区, ".worktrees/story-1002");
-  assert.equal(ledger.交付状态, "not-started");
-
-  const session = readFileSync(
-    path.join(expectedWorktree, "sprint-manage", "local", "session.yaml"),
-    "utf8",
+  assert.match(
+    await readFile(path.join(worktree, "sprint-manage", "local", "session.yaml"), "utf8"),
+    /当前需求: "story-1002"/,
   );
-  assert.match(session, /当前需求: "story-1002"/);
-
-  const repeated = prepare(secondLedger, projectRoot);
-  assert.equal(repeated.status, 0, repeated.stderr);
-  const repeatedOutput = JSON.parse(repeated.stdout);
-  assert.equal(repeatedOutput.mode, "reused");
-  assert.equal(path.resolve(repeatedOutput.worktree), expectedWorktree);
+  const ledger = parseProgressYaml(await readFile(targetLedger, "utf8"));
+  assert.equal(ledger.协作.工作区, ".");
+  assert.equal(ledger.协作.分支, "feature/story-1002");
 });
 
 test("does not switch the current worktree when it has uncommitted changes", async () => {
