@@ -98,7 +98,7 @@ test("routes every focused reference from the main skill", async () => {
       "references/step-details.md",
     ],
     [
-      "多需求、多人、分支、工作区或写入范围冲突",
+      "复杂且明确需要多人协作的需求，或多需求、多人、分支、工作区或写入范围冲突",
       "references/collaboration.md",
     ],
     [

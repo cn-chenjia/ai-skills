@@ -50,9 +50,11 @@ test("installs Trae session rules under the user rule directory", async () => {
 test("keeps stop points from releasing the session lock", () => {
   const block = managedBlock("codex");
 
-  assert.match(block, /只有用户明确输入“退出小七”才解除会话接管/);
+  assert.match(block, /只有用户明确输入“退出小七”，或在 proposal 确认后明确选择“确认并结束本次会话”才解除会话接管/);
   assert.match(block, /未明确激活小七时，不得接管普通需求/);
   assert.match(block, /ready、blocked 或 closed 后，按小七规则处理/);
+  assert.match(block, /确认并结束本次会话/);
+  assert.match(block, /一个小七会话只聚焦一个当前需求/);
   assert.doesNotMatch(block, /ready、blocked 或 closed[^。\n]*解除会话接管/);
 });
 

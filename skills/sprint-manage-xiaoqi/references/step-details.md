@@ -43,8 +43,8 @@ CLI 命令；后者用于更新 OpenSpec instruction 文件，不能拿来修改
 
 ```text
 propose
-  -> 用户确认
-  -> initialize-requirement
+  -> 用户确认 + 建账
+  -> 用户选择立即实施
   -> 协作评估（不满足“复杂且多人协作”则跳过）
   -> prepare-workspace
   -> apply（逐任务 TDD）
@@ -55,12 +55,13 @@ propose
 
 执行要求：
 
-1. OpenSpec proposal/design/specs/tasks 是唯一需求事实。
-2. 每个 task 内部执行失败验证、最小实现、验证通过和整理。
-3. 必须登记需求专属分支和工作区；当前工作区未被占用时可直接登记为 `.`，
+1. proposal 确认并建账后，用户必须在“立即实施”“暂停当前需求”和“结束本次会话”中明确选择；只有立即实施才继续本路径。
+2. OpenSpec proposal/design/specs/tasks 是唯一需求事实。
+3. 每个 task 内部执行失败验证、最小实现、验证通过和整理。
+4. 必须登记需求专属分支和工作区；当前工作区未被占用时可直接登记为 `.`，
    不强制新建额外 worktree。
-4. 项目验证通过后，再运行 OpenSpec verify 检查实现与规格一致性。
-5. 验证结果返回主技能，由主技能决定下一动作。
+5. 项目验证通过后，再运行 OpenSpec verify 检查实现与规格一致性。
+6. 验证结果返回主技能，由主技能决定下一动作。
 
 简单不等于跳过 TDD、验证或真实证据。
 
@@ -81,8 +82,8 @@ propose
 ```text
 OpenSpec explore
   -> OpenSpec propose
-  -> 用户确认
-  -> initialize-requirement
+  -> 用户确认 + 建账
+  -> 用户选择立即实施
   -> 协作评估（复杂且明确需要多人协作时为必经门禁）
   -> prepare-workspace
   -> 当前模型持续执行
