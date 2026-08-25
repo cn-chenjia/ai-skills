@@ -209,12 +209,12 @@ test("moves an uncommitted second ledger into its isolated worktree without repl
     firstSource
       .replace("交付状态: not-started", "交付状态: coding")
       .replace("  基线分支: null", '  基线分支: "main"')
-      .replace("  分支: null", '  分支: "codex/story-1001"')
+      .replace("  分支: null", '  分支: "feature/story-1001"')
       .replace("  工作区: null", '  工作区: "."'),
   );
   git(projectRoot, "add", "sprint-manage/requirements/story-1001.yaml");
   git(projectRoot, "commit", "-m", "add active requirement");
-  git(projectRoot, "checkout", "-b", "codex/story-1001");
+  git(projectRoot, "checkout", "-b", "feature/story-1001");
   await mkdir(path.join(projectRoot, "sprint-manage", "local"), { recursive: true });
   await writeFile(
     path.join(projectRoot, "sprint-manage", "local", "session.yaml"),

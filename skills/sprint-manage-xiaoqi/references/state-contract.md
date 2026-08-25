@@ -295,7 +295,7 @@ branchTemplate: feature/{{date}}/story-{{id}}
 分支命名优先级：
 1. 账本 `协作.分支` 显式配置
 2. `.xiaoqi/config.yaml` 的 `branchTemplate`
-3. 默认 `codex/<编号>`
+3. 默认 `feature/<编号>`
 
 若当前所在分支既非基线也非账本规划分支，且账本未显式指定分支，
 `prepare-workspace.mjs` 会打印提示，建议用户在账本中显式填写分支。
