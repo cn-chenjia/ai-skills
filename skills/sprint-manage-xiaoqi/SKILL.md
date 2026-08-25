@@ -68,7 +68,9 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 
 没有账本时，只能先完成需求澄清和方案确认。proposal 未获用户确认前，不得初始化账本。
 
-确认后必须先初始化账本并记录用户决策，再准备工作区。没有账本时不得进入 `apply`、验证、评审、归档或 `finish`。
+确认后必须先初始化账本并记录用户决策。没有账本时不得进入 `apply`、验证、评审、归档或 `finish`。
+
+准备工作区前，主技能必须评估需求是否复杂且明确需要多人协作。复杂性包括跨模块或公共链路、数据库或接口契约变化、tasks 超过 5 项或存在明显依赖、回归范围大，或存在多个写入范围不重叠的可独立任务。仅在同时满足复杂性和多人协作时，先路由协作评估门禁；`shared-change` 的集成分支、协作单元及冲突校验完整通过前不得准备工作区或进入 `apply`。其他需求按原流程准备工作区并持续执行。
 
 账本存在但锁、版本、分支、工作区或证据不一致时，先转到状态或协作参考处理；未对账前不覆盖已有事实。
 
@@ -82,7 +84,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 | --- | --- |
 | 新建、恢复、查看需求；账本或状态问题 | [state-contract.md](references/state-contract.md) |
 | 开始、继续、更新、验证；普通执行失败 | [step-details.md](references/step-details.md) |
-| 多需求、多人、分支、工作区或写入范围冲突 | [collaboration.md](references/collaboration.md) |
+| 复杂且明确需要多人协作的需求，或多需求、多人、分支、工作区或写入范围冲突 | [collaboration.md](references/collaboration.md) |
 | 已到 `ready`；PR、合并、保留、归档、关闭需求或关闭整个迭代 | [closing.md](references/closing.md) |
 | 安装、Hook、Codex、Trae、初始化检查或宿主异常 | [runtime-contract.md](references/runtime-contract.md) |
 | 底层事件或适配器数据 | [event-contract.md](references/event-contract.md) |

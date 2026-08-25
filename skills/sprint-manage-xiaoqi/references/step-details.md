@@ -44,7 +44,9 @@ CLI 命令；后者用于更新 OpenSpec instruction 文件，不能拿来修改
 ```text
 propose
   -> 用户确认
-  -> initialize-requirement + prepare-workspace
+  -> initialize-requirement
+  -> 协作评估（不满足“复杂且多人协作”则跳过）
+  -> prepare-workspace
   -> apply（逐任务 TDD）
   -> 项目验证 + OpenSpec verify
   -> ready
@@ -72,7 +74,7 @@ propose
 - 回归范围大，需要完整测试策略。
 - 存在多个可独立执行且写入范围不冲突的任务。
 
-涉及多需求、多人、分支、工作区或写入范围冲突时（包括单人并行多个需求、多人分别开发多个需求或大型需求多人分工的集成分支和 `write_scope`），返回主技能，并将 `recommended_next` 设置为抽象意图 `collaboration-conflict`，由主技能重新路由。
+需求完成初始化后、准备工作区前，若满足复杂变更条件且明确需要多人协作，必须返回主技能，并将 `recommended_next` 设置为抽象意图 `collaboration-gate`，由主技能重新路由。协作评估未完成前不得准备工作区或进入 `apply`。涉及多需求、多人、分支、工作区或写入范围冲突时（包括单人并行多个需求、多人分别开发多个需求或大型需求多人分工的集成分支和 `write_scope`），同样返回主技能处理。
 
 流程：
 
@@ -80,7 +82,9 @@ propose
 OpenSpec explore
   -> OpenSpec propose
   -> 用户确认
-  -> initialize-requirement + prepare-workspace
+  -> initialize-requirement
+  -> 协作评估（复杂且明确需要多人协作时为必经门禁）
+  -> prepare-workspace
   -> 当前模型持续执行
   -> worktree + TDD + subagents/executing-plans
   -> 项目验证 + code review
@@ -207,6 +211,7 @@ OpenSpec verify：
 ```text
 用户确认
   -> initialize-requirement
+  -> 协作评估（复杂且明确需要多人协作时）
   -> prepare-workspace
 not-started
   -> apply
