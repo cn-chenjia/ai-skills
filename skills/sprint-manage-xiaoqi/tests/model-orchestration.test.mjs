@@ -16,6 +16,9 @@ test("keeps the main skill in control of the Xiaoqi workflow", async () => {
   assert.match(skill, /确认、可以、执行、继续/);
   assert.match(skill, /退出小七/);
   assert.match(skill, /一个小七会话.*一个当前需求/s);
+  assert.match(skill, /openspec context --json/);
+  assert.match(skill, /root\.path/);
+  assert.match(skill, /Store checkout 共享/);
   assert.match(skill, /确认并立即实施当前需求/);
   assert.match(skill, /确认并暂停当前需求/);
   assert.match(skill, /确认并结束本次会话/);

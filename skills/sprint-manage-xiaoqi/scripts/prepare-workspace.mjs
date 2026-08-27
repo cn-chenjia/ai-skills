@@ -222,7 +222,7 @@ function moveLedgerToWorktree(ledgerPath, worktree) {
   return target;
 }
 
-function updateLedger(ledgerPath, owner, changes) {
+function updateLedger(ledgerPath, owner, changes, codeRepositories = undefined) {
   const lock = acquireLedgerLock(ledgerPath, owner);
   const lockPath = `${ledgerPath}.lock`;
   const original = readFileSync(ledgerPath, "utf8");
@@ -230,6 +230,7 @@ function updateLedger(ledgerPath, owner, changes) {
     const document = parseProgressYaml(original);
     const next = structuredClone(document);
     next.协作 = { ...next.协作, ...changes };
+    if (codeRepositories) next.代码仓库 = codeRepositories;
     writeFileSync(ledgerPath, serializeProgressYaml(next), "utf8");
     commitLedgerLock(ledgerPath, lock.token);
   } catch (error) {
@@ -253,6 +254,48 @@ export function hasBlockingChanges(projectRoot) {
     });
 }
 
+function prepareRepository(repository, requirementId) {
+  const root = path.resolve(repository.path);
+  const baseBranch = repository.base_branch ?? detectBaseBranch(root);
+  const branch = repository.branch ?? `feature/${requirementId}/${repository.id}`;
+  validateBranchName(root, branch);
+  const currentBranch = gitOutput(root, ["branch", "--show-current"]);
+  let worktree = repository.worktree
+    ? path.resolve(repository.worktree)
+    : path.join(root, ".worktrees", `${requirementId}-${repository.id}`);
+  let mode = "current";
+  if (currentBranch === branch) {
+    worktree = root;
+  } else {
+    if (existsSync(worktree)) {
+      const registered = listWorktrees(root).find((item) => comparablePath(item.path) === comparablePath(worktree));
+      if (!registered || registered.branch !== branch) throw new Error(`代码仓库目标工作区已存在: ${worktree}`);
+      mode = "reused";
+    } else {
+      if (branchExists(root, branch)) throw new Error(`代码仓库分支已存在但未绑定: ${branch}`);
+      if (hasBlockingChanges(root)) throw new Error(`代码仓库存在未提交修改: ${root}`);
+      ensureIgnoreRules(root);
+      mkdirSync(path.dirname(worktree), { recursive: true });
+      runGit(root, ["worktree", "add", "-b", branch, worktree, baseBranch]);
+      mode = "created";
+    }
+  }
+  return { ...repository, base_branch: baseBranch, branch, worktree, mode, delivery_status: repository.delivery_status ?? "not-started" };
+}
+
+function prepareStoreWorkspaces(ledgerPath, document, owner) {
+  const repositories = document.代码仓库 ?? [];
+  const prepared = repositories.map((repository) => prepareRepository(repository, document.编号));
+  updateLedger(ledgerPath, owner, document.协作, prepared);
+  return {
+    outcome: "completed",
+    mode: "repositories",
+    ledger: ledgerPath,
+    workspaces: prepared.map(({ id, path: repositoryPath, branch, worktree, mode }) => ({ id, path: repositoryPath, branch, worktree, mode })),
+    recommendedNext: "apply",
+  };
+}
+
 function prepareWorkspace(ledgerPath, projectRoot, owner) {
   const root = path.resolve(projectRoot);
   const ledger = path.resolve(ledgerPath);
@@ -262,6 +305,15 @@ function prepareWorkspace(ledgerPath, projectRoot, owner) {
   const document = parseProgressYaml(readFileSync(ledger, "utf8"));
   if (document.交付状态 !== "not-started") {
     throw new Error(`只有 not-started 需求可以准备工作区: ${document.交付状态}`);
+  }
+  if (Array.isArray(document.代码仓库) && document.代码仓库.length > 0) {
+    if (document.协作?.负责人 !== owner) {
+      throw new Error(`只有需求负责人可以准备工作区: ${document.协作?.负责人}`);
+    }
+    if (!hasApprovedProposal(document)) {
+      throw new Error("方案尚未确认，不能准备需求分支和工作区");
+    }
+    return prepareStoreWorkspaces(ledger, document, owner);
   }
   if (document.协作?.负责人 !== owner) {
     throw new Error(`只有需求负责人可以准备工作区: ${document.协作?.负责人}`);

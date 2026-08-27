@@ -1,0 +1,68 @@
+schema_version: 4
+document_type: requirement
+编号: "story-store"
+名称: "Store 需求"
+change_id: "story-store-change"
+revision: 1
+updated_at: "2026-08-27T10:00:00+08:00"
+updated_by: "alice"
+流程状态: active
+交付状态: not-started
+当前意图: "准备实施"
+推荐动作: apply
+规划:
+  类型: store
+  store_id: "team-plans"
+  root: "E:/plans/team-plans"
+  source: declared
+  role: openspec_root
+  resolved_by: "openspec context --json"
+  checked_at: "2026-08-27T10:00:00+08:00"
+协作:
+  模式: single
+  负责人: "alice"
+  参与人: []
+  基线分支: null
+  分支: null
+  工作区: null
+  集成分支: null
+代码仓库:
+  - id: checkout-api
+    path: "E:/src/checkout-api"
+    branch: "feature/story-store-api"
+    worktree: "E:/src/checkout-api/.worktrees/story-store"
+    write_scope:
+      - "src/checkout/"
+    delivery_status: not-started
+    checks: []
+  - id: checkout-web
+    path: "E:/src/checkout-web"
+    branch: "feature/story-store-web"
+    worktree: "E:/src/checkout-web/.worktrees/story-store"
+    write_scope:
+      - "web/checkout/"
+    delivery_status: not-started
+    checks: []
+依赖需求: []
+冲突键: []
+影响范围: []
+并行单元: []
+计划: null
+证据索引:
+  apply: null
+  checks: []
+  review: null
+  archive:
+    outcome: pending
+    path: null
+  finish:
+    outcome: pending
+    result: null
+    summary: null
+用户决策:
+  - kind: proposal-confirmation
+    outcome: approved
+    actor: "requester"
+    at: "2026-08-27T10:00:00+08:00"
+阻塞项: []
+事件日志: []

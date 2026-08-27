@@ -81,8 +81,8 @@ Codex Hook 不是小七的强制依赖。不接入时，小七仍可通过账本
 - `close-requirement.mjs`：归档和收尾后写入 `closed`。
 
 `~/.xiaoqi/runtime/codex-hook.mjs` 从 stdin 读取 Codex 事件，映射到小七生命周期。它会
-阻断破坏性 Git/文件命令，并在工作区只有一个需求账本时自动发现该账本；多个需求
-同时存在时，使用 `XIAOQI_LEDGER` 或 Hook 输入中的 `ledger` 明确指定。
+阻断破坏性 Git/文件命令，并在 OpenSpec `context --json` 解析出的 planning root 下只有一个需求账本时自动发现该账本；多个需求
+同时存在时，使用 `XIAOQI_LEDGER` 或 Hook 输入中的 `ledger` 明确指定。不得读取 Store registry 或根据 store_id 猜测路径；root 解析失败时直接绕过账本发现并要求上层明确指定。
 
 如选择接入，配置完成后需要在 Codex 中执行 `/hooks`，审核并信任项目 Hook。
 安装边界：

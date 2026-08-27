@@ -13,6 +13,7 @@
 
 - 每个需求工作区持有该需求的 `requirements/<id>.yaml`，账本随需求分支和 worktree 隔离。
 - 当前会话的目标需求由明确的需求编号或 `change_id` 确定；不维护共享的本地会话状态文件。
+- OpenSpec Store 模式下，`规划.root` 必须来自 `openspec context --json` 的 `root.path`；Store checkout 共享，代码仓库记录在 `代码仓库` 列表中并分别隔离。
 - 旧 `sprint-progress.yaml` 迁移完成后移入 archive，不再写回。
 
 ## 账本锁与版本

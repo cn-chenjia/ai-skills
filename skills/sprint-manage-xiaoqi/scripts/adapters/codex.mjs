@@ -4,6 +4,7 @@
 import { readdirSync } from "node:fs";
 import path from "node:path";
 
+import { resolveOpenSpecContext } from "../openspec-context.mjs";
 import { handleNormalizedEvent, normalizedExitCode } from "../core/hook-runtime.mjs";
 
 const EVENT_MAP = new Map([
@@ -49,7 +50,13 @@ function resultFrom(payload) {
 
 function discoverLedger(payload) {
   const root = payload.cwd ?? process.cwd();
-  const requirementsDir = path.join(root, "sprint-manage", "requirements");
+  let planningRoot = root;
+  try {
+    planningRoot = resolveOpenSpecContext(root).rootPath;
+  } catch {
+    return undefined;
+  }
+  const requirementsDir = path.join(planningRoot, "sprint-manage", "requirements");
   let files = [];
   try {
     files = readdirSync(requirementsDir)

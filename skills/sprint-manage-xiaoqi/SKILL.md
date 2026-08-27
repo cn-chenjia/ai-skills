@@ -61,9 +61,9 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 
 每次触发或续接时，只做当前判断所需的最小检查：
 
-1. 定位项目根目录，精确识别需求编号和 `change_id`。
-2. 读取需求账本并校验其真实流程状态、交付状态、锁和证据索引。
-3. 读取 OpenSpec 的最新 change 列表和目标 change 状态。
+1. 定位当前代码仓库，并执行 `openspec context --json`；只使用返回的 `root.path` 作为规划根。
+2. 读取规划根下的需求账本并校验其真实流程状态、交付状态、锁和证据索引。
+3. 读取规划根中的 OpenSpec 最新 change 列表和目标 change 状态。
 4. 检查当前意图、最近动作、项目事实和是否存在人工门禁。
 5. 若有多个候选需求，先请求用户明确选择；不得模糊匹配。
 6. 当前会话没有明确需求编号或 `change_id` 时，不得执行写入、验证、归档或收尾；必须先要求用户选择目标需求。
@@ -79,6 +79,8 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 没有账本时不得进入 `apply`、验证、评审、归档或 `finish`。
 
 准备工作区前，主技能必须评估需求是否复杂且明确需要多人协作。复杂性包括跨模块或公共链路、数据库或接口契约变化、tasks 超过 5 项或存在明显依赖、回归范围大，或存在多个写入范围不重叠的可独立任务。仅在同时满足复杂性和多人协作时，先路由协作评估门禁；`shared-change` 的集成分支、协作单元及冲突校验完整通过前不得准备工作区或进入 `apply`。其他需求按原流程准备工作区并持续执行。
+
+OpenSpec root 解析失败时进入 blocked，不得回退到当前代码仓库创建账本。Store 模式下 Store checkout 共享规划工作区，代码仓库按 `代码仓库` 列表分别使用独立 branch/worktree。
 
 账本存在但锁、版本、分支、工作区或证据不一致时，先转到状态或协作参考处理；未对账前不覆盖已有事实。
 

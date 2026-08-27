@@ -4,6 +4,7 @@
 import { readdirSync } from "node:fs";
 import path from "node:path";
 
+import { resolveOpenSpecContext } from "../openspec-context.mjs";
 import {
   handleNormalizedEvent,
   normalizedExitCode,
@@ -129,7 +130,13 @@ function resultFrom(payload, body) {
 }
 
 function discoverLedger(payload, cwd) {
-  const requirementsDir = path.join(cwd, "sprint-manage", "requirements");
+  let planningRoot = cwd;
+  try {
+    planningRoot = resolveOpenSpecContext(cwd).rootPath;
+  } catch {
+    return undefined;
+  }
+  const requirementsDir = path.join(planningRoot, "sprint-manage", "requirements");
   let files = [];
   try {
     files = readdirSync(requirementsDir)

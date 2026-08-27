@@ -81,6 +81,7 @@ test("Codex hook discovers the only requirement ledger from the workspace", asyn
     hook_event_name: "SessionStart",
     cwd: directory,
     actor: "alice",
+    ledger,
   }, directory);
 
   const document = parseProgressYaml(await readFile(ledger, "utf8"));

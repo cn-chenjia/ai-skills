@@ -42,6 +42,31 @@ test("accepts a shared change with independent collaboration lanes", async () =>
   assert.deepEqual(validateProgress(await fixture("valid-shared.yaml")), []);
 });
 
+test("accepts a Store ledger with independent code repositories", async () => {
+  assert.deepEqual(validateProgress(await fixture("valid-store.yaml")), []);
+});
+
+test("rejects duplicate code repository identities and overlapping scopes", async () => {
+  const document = await fixture("valid-store.yaml");
+  document.代码仓库[1].id = document.代码仓库[0].id;
+  document.代码仓库[1].worktree = document.代码仓库[0].worktree;
+  document.代码仓库[1].write_scope = document.代码仓库[0].write_scope;
+  const codes = new Set(validateProgress(document).map((issue) => issue.code));
+  assert(codes.has("duplicate-code-repository-id"));
+  assert(codes.has("duplicate-code-repository-worktree"));
+  assert(codes.has("code-repository-write-scope-conflict"));
+});
+
+test("rejects invalid code repository delivery status", async () => {
+  const document = await fixture("valid-store.yaml");
+  document.代码仓库[0].delivery_status = "unknown";
+  assert(
+    validateProgress(document).some(
+      (issue) => issue.code === "invalid-code-repository-delivery-status",
+    ),
+  );
+});
+
 test("rejects a V3 shared progress file until it is split", async () => {
   const codes = await issueCodes("invalid-schema-v3.yaml");
   assert(codes.has("unsupported-schema-version"));

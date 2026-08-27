@@ -16,7 +16,7 @@
 
 ## 单人并行多个需求
 
-每个需求使用独立 OpenSpec change、branch、worktree 和 `sprint-manage/requirements/<id>.yaml`；账本在其专属 worktree 中。每个会话都必须明确指定目标需求，多个会话可分别处理不同需求，不共享本地会话状态。
+每个需求使用独立 OpenSpec change、branch、worktree 和 `sprint-manage/requirements/<id>.yaml`；Store 模式下账本位于共享 Store checkout，代码仓库通过 `代码仓库` 列表分别使用独立 branch/worktree。每个会话都必须明确指定目标需求，多个会话可分别处理不同需求，不共享本地会话状态。
 
 开始编码前校验整个 requirements 目录，禁止复用 branch、worktree 或冲突键。
 

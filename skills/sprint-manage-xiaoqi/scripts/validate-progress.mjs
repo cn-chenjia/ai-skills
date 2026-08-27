@@ -17,6 +17,9 @@ const DELIVERY_STATUS_VALUES = new Set([
   "kept",
 ]);
 const FINAL_DELIVERY_STATUS_VALUES = new Set(["pr-open", "merged", "kept"]);
+const CODE_REPOSITORY_DELIVERY_STATUS_VALUES = new Set([
+  ...DELIVERY_STATUS_VALUES,
+]);
 const COLLABORATION_MODE_VALUES = new Set([
   "single",
   "independent",
@@ -617,6 +620,66 @@ export function validateProgress(document) {
     !ACTION_VALUES.has(document.推荐动作)
   ) {
     addIssue(issues, "invalid-recommended-action", "推荐动作", "推荐动作不是支持的原生动作");
+  }
+
+  const planning = document.规划;
+  if (planning !== undefined) {
+    if (!planning || typeof planning !== "object" || Array.isArray(planning)) {
+      addIssue(issues, "invalid-planning", "规划", "规划必须是映射");
+    } else {
+      if (!hasText(planning.类型) || !new Set(["project", "store"]).has(planning.类型)) {
+        addIssue(issues, "invalid-planning-type", "规划.类型", "规划类型必须是 project 或 store");
+      }
+      if (!hasText(planning.root)) addIssue(issues, "missing-planning-root", "规划.root", "规划 root 不能为空");
+      if (planning.类型 === "store" && !hasText(planning.store_id)) {
+        addIssue(issues, "missing-store-id", "规划.store_id", "Store 规划必须提供 store_id");
+      }
+    }
+  }
+
+  const codeRepositories = Array.isArray(document.代码仓库)
+    ? document.代码仓库
+    : [];
+  const repositoryIds = new Set();
+  const repositoryPaths = new Set();
+  const repositoryBranches = new Set();
+  const repositoryWorktrees = new Set();
+  for (const [index, repository] of codeRepositories.entries()) {
+    const repositoryPath = `代码仓库[${index}]`;
+    if (!hasText(repository?.id) || repositoryIds.has(repository.id)) {
+      addIssue(issues, "duplicate-code-repository-id", `${repositoryPath}.id`, "代码仓库 id 必须非空且唯一");
+    } else repositoryIds.add(repository.id);
+    if (!hasText(repository?.path) || repositoryPaths.has(repository.path)) {
+      addIssue(issues, "duplicate-code-repository-path", `${repositoryPath}.path`, "代码仓库 path 必须非空且唯一");
+    } else repositoryPaths.add(repository.path);
+    if (!hasText(repository?.branch) || repositoryBranches.has(repository.branch)) {
+      addIssue(issues, "duplicate-code-repository-branch", `${repositoryPath}.branch`, "代码仓库 branch 必须非空且唯一");
+    } else repositoryBranches.add(repository.branch);
+    if (!hasText(repository?.worktree) || repositoryWorktrees.has(repository.worktree)) {
+      addIssue(issues, "duplicate-code-repository-worktree", `${repositoryPath}.worktree`, "代码仓库 worktree 必须非空且唯一");
+    } else repositoryWorktrees.add(repository.worktree);
+    if (!CODE_REPOSITORY_DELIVERY_STATUS_VALUES.has(repository?.delivery_status)) {
+      addIssue(issues, "invalid-code-repository-delivery-status", `${repositoryPath}.delivery_status`, "代码仓库交付状态无效");
+    }
+    if (!Array.isArray(repository?.write_scope) || repository.write_scope.length === 0) {
+      addIssue(issues, "missing-code-repository-write-scope", `${repositoryPath}.write_scope`, "代码仓库必须声明 write_scope");
+    }
+    if (!Array.isArray(repository?.checks)) {
+      addIssue(issues, "invalid-code-repository-checks", `${repositoryPath}.checks`, "代码仓库 checks 必须是数组");
+    }
+  }
+  for (let left = 0; left < codeRepositories.length; left += 1) {
+    for (let right = left + 1; right < codeRepositories.length; right += 1) {
+      for (const leftScope of codeRepositories[left]?.write_scope ?? []) {
+        for (const rightScope of codeRepositories[right]?.write_scope ?? []) {
+          const a = normalizeScope(leftScope);
+          const b = normalizeScope(rightScope);
+          if (a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`)) {
+            addIssue(issues, "code-repository-write-scope-conflict", `代码仓库[${left}].write_scope`, `代码仓库写入范围“${a}”与“${b}”重叠`);
+          }
+        }
+      }
+    }
   }
 
   const collaboration = document.协作;

@@ -12,6 +12,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { serializeProgressYaml } from "./advance-progress.mjs";
+import { resolveOpenSpecContext } from "./openspec-context.mjs";
 import {
   acquireLedgerLock,
   commitLedgerLock,
@@ -47,7 +48,7 @@ function ensureIgnoreRules(projectRoot) {
   writeFileSync(ignorePath, `${source}${prefix}${missing.join("\n")}\n`, "utf8");
 }
 
-function newLedger(requirementId, name, changeId, owner, confirmedBy) {
+function newLedger(requirementId, name, changeId, owner, confirmedBy, context) {
   const now = new Date().toISOString();
   return {
     schema_version: 4,
@@ -62,6 +63,15 @@ function newLedger(requirementId, name, changeId, owner, confirmedBy) {
     交付状态: "not-started",
     当前意图: "准备实施",
     推荐动作: "apply",
+    规划: {
+      类型: context.storeId ? "store" : "project",
+      store_id: context.storeId,
+      root: context.rootPath,
+      source: context.source,
+      role: context.role,
+      resolved_by: "openspec context --json",
+      checked_at: new Date().toISOString(),
+    },
     协作: {
       模式: "single",
       负责人: owner,
@@ -223,8 +233,14 @@ export function initializeRequirement(
   changeId,
   owner,
   confirmedBy,
+  options = {},
 ) {
   const root = path.resolve(projectRoot);
+  const context =
+    options.context ??
+    (process.env.XIAOQI_OPENSPEC_CONTEXT_JSON
+      ? JSON.parse(process.env.XIAOQI_OPENSPEC_CONTEXT_JSON)
+      : resolveOpenSpecContext(root, options));
   for (const [label, value] of [
     ["需求编号", requirementId],
     ["需求名称", name],
@@ -236,14 +252,15 @@ export function initializeRequirement(
   }
   validateRequirementId(requirementId);
 
-  const requirementsDir = path.join(root, "sprint-manage", "requirements");
+  const planningRoot = path.resolve(context.rootPath);
+  const requirementsDir = path.join(planningRoot, "sprint-manage", "requirements");
   const ledgerPath = path.join(requirementsDir, `${requirementId}.yaml`);
   mkdirSync(requirementsDir, { recursive: true });
-  ensureIgnoreRules(root);
+  ensureIgnoreRules(planningRoot);
 
   if (existsSync(ledgerPath)) {
     return existingLedgerResult(
-      root,
+      planningRoot,
       ledgerPath,
       requirementId,
       changeId,
@@ -258,6 +275,7 @@ export function initializeRequirement(
     changeId,
     owner,
     confirmedBy,
+    context,
   );
   const issues = validateProgress(document);
   if (issues.length > 0) {
