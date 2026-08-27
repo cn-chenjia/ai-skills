@@ -114,12 +114,14 @@ OpenSpec快照:
 
 `shared-change` 必须配置集成分支和至少两个并行单元。目录校验覆盖分支、工作区、依赖需求、冲突键、影响范围和并行单元的 `write_scope`：分支和工作区不得复用，依赖不得缺失或形成循环，active 需求的冲突键及影响范围不得冲突，`write_scope` 不得重叠或互为父子路径。需求校验还要求并行单元 ID、branch、worktree 唯一，`depends_on` 有效且无循环，且子任务不直接使用集成分支。
 
+Store 多仓库模式下，代码仓库列表非空时，各仓库的 `branch`、`worktree` 和 `write_scope` 承载工作区隔离事实，顶层 `协作.分支` 与 `协作.工作区` 可以保持 null；不得再填充一个代表多个仓库的哨兵分支或工作区。
+
 ## 状态和闭环
 
 流程状态：
 
 ```text
-active | paused | blocked | closed
+active | paused | blocked | cancelled | closed
 ```
 
 交付状态：
@@ -131,6 +133,7 @@ pr-open | merged | kept
 
 `closed` 必须同时具备 OpenSpec archive 成功证据和 finish 成功证据。
 `finish.result` 必须等于最终交付状态。
+`cancelled` 是终态，必须存在 `workflow-cancelled` 事件及非空原因，不要求 archive 或 finish 证据；取消后不得继续执行动作。
 
 ## 校验
 
@@ -141,7 +144,7 @@ node scripts/validate-progress.mjs \
   sprint-manage/requirements/story-2000.yaml
 ```
 
-校验整个需求目录及跨需求冲突：
+校验整个需求目录及跨需求冲突（Git 仓库下会自动聚合所有 registered worktree 的同路径账本）：
 
 ```bash
 node scripts/validate-progress.mjs sprint-manage/requirements
@@ -216,7 +219,8 @@ ready -> pr-open | merged | kept
 
 `apply` 证据不强制要求 `commit` 字段。若未提供，`advance-progress.mjs` 会自动执行
 `git rev-parse HEAD` 回填当前 HEAD 的 commit 到证据和事件日志，避免 `delivery-transition`
-事件的 `commit` 字段为 `null`。
+事件的 `commit` 字段为 `null`。Store 多仓库模式下，会分别读取各代码仓库的 `worktree`（未准备时回退到 `path`），以
+`<repository-id>@<short-commit>` 形式按代码仓库列表顺序聚合，使用逗号连接；读取失败的仓库跳过，全部失败时不回填。
 
 ### archive 证据的两种记录方式
 

@@ -79,6 +79,7 @@ Codex Hook 不是小七的强制依赖。不接入时，小七仍可通过账本
 - `prepare-workspace.mjs`：准备需求分支和专属工作区。
 - `advance-progress.mjs`：按证据推进交付状态。
 - `close-requirement.mjs`：归档和收尾后写入 `closed`。
+- `cancel-requirement.mjs`：记录取消原因并写入 `cancelled`，不删除分支或工作区。
 
 `~/.xiaoqi/runtime/codex-hook.mjs` 从 stdin 读取 Codex 事件，映射到小七生命周期。它会
 阻断破坏性 Git/文件命令，并在 OpenSpec `context --json` 解析出的 planning root 下只有一个需求账本时自动发现该账本；多个需求

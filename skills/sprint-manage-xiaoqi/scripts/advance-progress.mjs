@@ -141,23 +141,44 @@ export function validateEvidence(evidence, targetStatus) {
   }
 }
 
+function gitHead(repositoryRoot) {
+  const result = spawnSync(
+    "git",
+    ["-C", repositoryRoot, "rev-parse", "HEAD"],
+    { encoding: "utf8" },
+  );
+  if (result.status !== 0) return null;
+  const commit = result.stdout.trim();
+  return commit || null;
+}
+
 function autoFillApplyCommit(evidence, ledgerPath) {
   // apply 证据未带 commit 时，尝试自动回填当前 HEAD 的 commit
   if (evidence.kind !== "apply") return evidence;
   if (evidence.commit && evidence.commit.trim()) return evidence;
 
+  const document = parseProgressYaml(readFileSync(ledgerPath, "utf8"));
+  const repositories = Array.isArray(document.代码仓库)
+    ? document.代码仓库
+    : [];
+  if (repositories.length > 0) {
+    const commits = repositories
+      .map((repository) => {
+        const repositoryRoot = repository.worktree || repository.path;
+        const commit = repositoryRoot ? gitHead(repositoryRoot) : null;
+        return commit ? `${repository.id}@${commit.slice(0, 12)}` : null;
+      })
+      .filter(Boolean);
+    return commits.length > 0
+      ? { ...evidence, commit: commits.join(",") }
+      : evidence;
+  }
+
   const projectRoot = path.dirname(path.dirname(path.dirname(ledgerPath)));
-  const result = spawnSync(
-    "git",
-    ["-C", projectRoot, "rev-parse", "HEAD"],
-    { encoding: "utf8" },
-  );
+  const commit = gitHead(projectRoot);
   // git rev-parse 失败时（如测试环境非 git 仓库）跳过回填，保留原证据
   // 后续 validateProgress 会对 apply 证据做校验（apply 不强制要求 commit）
-  if (result.status !== 0) return evidence;
-  const commit = result.stdout.trim();
-  if (!commit) return evidence;
-  return { ...evidence, commit };
+  return commit ? { ...evidence, commit } : evidence;
 }
 
 function scalar(value) {

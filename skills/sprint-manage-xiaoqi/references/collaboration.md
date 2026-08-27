@@ -8,7 +8,7 @@
 
 ## 需求隔离
 
-所有模式都必须配置负责人、需求分支和需求工作区。处于 explore/propose 且交付状态为 `not-started` 时，分支和工作区可以暂缺；进入 coding 前必须补齐。
+所有模式都必须配置负责人。单仓库需求必须配置需求分支和需求工作区；Store 多仓库需求由 `代码仓库` 列表分别提供每个仓库的 branch、worktree 和 write_scope，顶层 `协作.分支` 与 `协作.工作区` 可以保持为空。处于 explore/propose 且交付状态为 `not-started` 时，隔离字段可以暂缺；进入 coding 前必须补齐对应模式的隔离信息。
 
 新需求的 proposal 必须先由用户确认，再创建账本。初始化时将确认结果写入 `用户决策`；没有 `proposal-confirmation: approved` 的账本不能准备工作区或进入 `coding`。
 
@@ -18,7 +18,7 @@
 
 每个需求使用独立 OpenSpec change、branch、worktree 和 `sprint-manage/requirements/<id>.yaml`；Store 模式下账本位于共享 Store checkout，代码仓库通过 `代码仓库` 列表分别使用独立 branch/worktree。每个会话都必须明确指定目标需求，多个会话可分别处理不同需求，不共享本地会话状态。
 
-开始编码前校验整个 requirements 目录，禁止复用 branch、worktree 或冲突键。
+开始编码前校验整个 requirements 目录，禁止复用 branch、worktree 或冲突键。若需求账本因 worktree 隔离而分散，目录校验会以当前目录所属 Git 仓库为根，自动读取所有 registered worktree 中相同相对路径的需求账本后再执行跨需求校验。
 
 ## 多人分别开发多个需求
 

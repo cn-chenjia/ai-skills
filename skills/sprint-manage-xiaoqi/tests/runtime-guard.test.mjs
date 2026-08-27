@@ -3,6 +3,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   assertCommandAllowed,
@@ -13,7 +14,8 @@ import { runLifecycleHook } from "../scripts/lifecycle.mjs";
 import { parseProgressYaml } from "../scripts/validate-progress.mjs";
 
 const fixturePath = path.resolve(
-  "skills/sprint-manage-xiaoqi/tests/fixtures/valid-single.yaml",
+  path.dirname(fileURLToPath(import.meta.url)),
+  "fixtures/valid-single.yaml",
 );
 
 test("rejects commands outside the explicit allowlist", () => {
@@ -86,6 +88,21 @@ test("lifecycle hook records session start and blocks actions for blocked work",
         "alice",
       ),
     /workflow-blocked/,
+  );
+});
+
+test("lifecycle hook blocks actions for cancelled work", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-hooks-cancelled-"));
+  const file = path.join(directory, "story-1001.yaml");
+  const source = (await readFile(fixturePath, "utf8"))
+    .replace("流程状态: active", "流程状态: cancelled")
+    .replace("推荐动作: apply", "推荐动作: null")
+    .replace("事件日志: []", '事件日志:\n  - kind: workflow-cancelled\n    reason: "no longer needed"');
+  await writeFile(file, source);
+
+  assert.throws(
+    () => runLifecycleHook("before-action", file, { action: "apply" }, "alice"),
+    /workflow-cancelled/,
   );
 });
 

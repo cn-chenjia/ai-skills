@@ -12,12 +12,40 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const skillDir = path.resolve(testDir, "..");
 const initializeScript = path.join(skillDir, "scripts", "initialize-requirement.mjs");
 const closeScript = path.join(skillDir, "scripts", "close-requirement.mjs");
+const cancelScript = path.join(skillDir, "scripts", "cancel-requirement.mjs");
 function runScript(script, args, cwd, contextRoot = cwd) {
   return spawnSync(process.execPath, [script, ...args], { cwd, encoding: "utf8", env: { ...process.env, XIAOQI_OPENSPEC_CONTEXT_JSON: JSON.stringify({ rootPath: contextRoot, source: contextRoot === cwd ? "nearest" : "declared", storeId: contextRoot === cwd ? undefined : "team-plans", role: "openspec_root" }) } });
 }
 function approvedSource(source) {
   return source.replace("交付状态: coding", "交付状态: kept").replace("  archive:\n    outcome: pending\n    path: null", '  archive:\n    outcome: completed\n    path: "openspec/changes/archive/story-1001"').replace("  finish:\n    outcome: pending\n    result: null\n    summary: null", '  finish:\n    kind: "finish"\n    command: "git status"\n    exit_code: 0\n    commit: "abc123"\n    checked_at: "2026-08-20T10:00:00+08:00"\n    outcome: completed\n    result: kept\n    summary: "本地保留"');
 }
+
+test("cancels a requirement with a reason without requiring delivery evidence", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-cancel-"));
+  const ledgerPath = path.join(root, "story-cancel.yaml");
+  await writeFile(ledgerPath, (await readFile(path.join(testDir, "fixtures", "valid-single.yaml"), "utf8"))
+    .replaceAll("story-1001", "story-cancel"));
+
+  const result = runScript(cancelScript, [ledgerPath, "alice", "scope no longer needed"], root);
+  assert.equal(result.status, 0, result.stderr);
+  const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
+  assert.equal(ledger.流程状态, "cancelled");
+  assert.equal(ledger.当前意图, "需求已取消");
+  assert.equal(ledger.推荐动作, null);
+  assert.equal(ledger.事件日志.at(-1).kind, "workflow-cancelled");
+  assert.equal(ledger.事件日志.at(-1).reason, "scope no longer needed");
+});
+
+test("rejects cancelling a requirement without a reason", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-cancel-empty-"));
+  const ledgerPath = path.join(root, "story-cancel.yaml");
+  await writeFile(ledgerPath, (await readFile(path.join(testDir, "fixtures", "valid-single.yaml"), "utf8"))
+    .replaceAll("story-1001", "story-cancel"));
+
+  const result = runScript(cancelScript, [ledgerPath, "alice", ""], root);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /取消原因不能为空/);
+});
 
 test("initializes the first tracked requirement before implementation", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-init-"));

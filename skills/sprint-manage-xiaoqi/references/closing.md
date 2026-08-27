@@ -41,6 +41,19 @@ OpenSpec archive 成功后，调用 Superpowers 的
 `finishing-a-development-branch` 完成 finish。根据用户选择，把真实 finish 结果记录为
 `pr-open | merged | kept`，并保存成功的 finish 证据。
 
+## 取消需求
+
+需求被取消或废弃时，不得伪造 `closed`、archive 或 finish 结果。调用取消入口并记录非空原因：
+
+```bash
+node "<小七技能安装目录>/scripts/cancel-requirement.mjs" \
+  sprint-manage/requirements/story-1001.yaml \
+  alice \
+  "需求范围已取消"
+```
+
+取消会写入 `流程状态: cancelled` 和 `workflow-cancelled` 事件。分支与工作区默认保留，不自动删除；取消后的需求不能继续执行动作。
+
 ## 正式关闭
 
 仅当 archive 和 finish 证据都存在，且最终交付状态为 `pr-open | merged | kept` 时，才调用：

@@ -5,6 +5,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   handleNormalizedEvent,
@@ -13,7 +14,8 @@ import {
 import { parseProgressYaml } from "../scripts/validate-progress.mjs";
 
 const fixture = path.resolve(
-  "skills/sprint-manage-xiaoqi/tests/fixtures/valid-single.yaml",
+  path.dirname(fileURLToPath(import.meta.url)),
+  "fixtures/valid-single.yaml",
 );
 
 test("generic runtime denies destructive commands with a normalized decision", async () => {

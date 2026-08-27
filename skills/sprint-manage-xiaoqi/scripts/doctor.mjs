@@ -18,6 +18,7 @@ const RUNTIME_FILES = [
   "ledger-lock.mjs",
   "advance-progress.mjs",
   "close-requirement.mjs",
+  "cancel-requirement.mjs",
   "validate-progress.mjs",
   "guarded-run.mjs",
 ];

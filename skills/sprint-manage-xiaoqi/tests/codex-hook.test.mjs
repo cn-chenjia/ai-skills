@@ -3,20 +3,15 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { parseProgressYaml } from "../scripts/validate-progress.mjs";
 import { normalizeCodexEvent } from "../scripts/adapters/codex.mjs";
 import { handle, hookExitCode } from "../scripts/codex-hook.mjs";
 
-const repoRoot = path.resolve(".");
-const hookScript = path.join(
-  repoRoot,
-  "skills/sprint-manage-xiaoqi/scripts/codex-hook.mjs",
-);
-const fixture = path.join(
-  repoRoot,
-  "skills/sprint-manage-xiaoqi/tests/fixtures/valid-single.yaml",
-);
+const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const hookScript = path.join(skillRoot, "scripts/codex-hook.mjs");
+const fixture = path.join(skillRoot, "tests/fixtures/valid-single.yaml");
 
 test("Codex PreToolUse hook bypasses destructive commands without a selected ledger", () => {
   const result = handle({

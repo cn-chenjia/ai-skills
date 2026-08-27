@@ -49,6 +49,9 @@ function assertBeforeAction(document, payload) {
   if (document[workflowKey] === "closed") {
     fail("workflow-closed", "需求已经 closed，不能继续执行动作");
   }
+  if (document[workflowKey] === "cancelled") {
+    fail("workflow-cancelled", "需求已经 cancelled，不能继续执行动作");
+  }
   if (typeof payload.action !== "string" || !payload.action.trim()) {
     fail("missing-action", "before-action 必须提供 action");
   }

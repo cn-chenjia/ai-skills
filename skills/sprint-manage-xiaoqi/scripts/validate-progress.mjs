@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-const WORKFLOW_STATUS_VALUES = new Set(["active", "paused", "blocked", "closed"]);
+const WORKFLOW_STATUS_VALUES = new Set(["active", "paused", "blocked", "cancelled", "closed"]);
 const DELIVERY_STATUS_VALUES = new Set([
   "not-started",
   "coding",
@@ -690,8 +691,10 @@ export function validateProgress(document) {
     if (!hasText(collaboration.负责人)) {
       addIssue(issues, "missing-lead", "协作.负责人", "必须指定唯一负责人");
     }
+    const usesCodeRepositories = codeRepositories.length > 0;
     if (
       document.交付状态 !== "not-started" &&
+      !usesCodeRepositories &&
       (!hasText(collaboration.分支) || !hasText(collaboration.工作区))
     ) {
       addIssue(issues, "missing-workspace-isolation", "协作", "正在开发的需求必须配置独立分支和工作区");
@@ -770,6 +773,19 @@ export function validateProgress(document) {
   if (document.流程状态 === "blocked" && (!Array.isArray(document.阻塞项) || document.阻塞项.length === 0)) {
     addIssue(issues, "missing-blocker", "阻塞项", "blocked 流程必须记录阻塞项");
   }
+  if (document.流程状态 === "cancelled") {
+    const events = Array.isArray(document.事件日志) ? document.事件日志 : [];
+    const cancellation = events.find((event) => event?.kind === "workflow-cancelled");
+    if (!hasText(cancellation?.reason)) {
+      addIssue(issues, "missing-cancellation-reason", "事件日志", "cancelled 流程必须记录非空取消原因");
+    }
+    if (document.阻塞项?.length > 0) {
+      addIssue(issues, "cancelled-has-blockers", "阻塞项", "cancelled 流程不能保留阻塞项");
+    }
+    if (document.证据索引?.finish?.outcome && SUCCESS_OUTCOMES.has(document.证据索引.finish.outcome)) {
+      addIssue(issues, "cancelled-has-finish-evidence", "证据索引.finish", "cancelled 流程不能包含成功的 finish 证据");
+    }
+  }
   if (document.流程状态 === "closed") {
     const archive = document.证据索引?.archive;
     const finish = document.证据索引?.finish;
@@ -795,13 +811,63 @@ export function validateProgressFile(filePath) {
   return validateProgress(parseProgressYaml(source));
 }
 
+function comparablePath(value) {
+  const resolved = path.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function worktreePaths(projectRoot) {
+  const result = spawnSync(
+    "git",
+    ["-C", projectRoot, "worktree", "list", "--porcelain"],
+    { encoding: "utf8" },
+  );
+  if (result.status !== 0) return [];
+  return result.stdout
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => line.slice("worktree ".length).trim())
+    .filter(Boolean);
+}
+
+function ledgerSources(directoryPath) {
+  const directory = path.resolve(directoryPath);
+  const projectRootResult = spawnSync(
+    "git",
+    ["-C", directory, "rev-parse", "--show-toplevel"],
+    { encoding: "utf8" },
+  );
+  const projectRoot = projectRootResult.status === 0
+    ? projectRootResult.stdout.trim()
+    : null;
+  const directories = [directory];
+  if (projectRoot) {
+    const relativeDirectory = path.relative(projectRoot, directory);
+    for (const worktree of worktreePaths(projectRoot)) {
+      const candidate = path.resolve(worktree, relativeDirectory);
+      if (!directories.some((item) => comparablePath(item) === comparablePath(candidate))) {
+        directories.push(candidate);
+      }
+    }
+  }
+
+  const sources = [];
+  for (const sourceDirectory of directories) {
+    if (!existsSync(sourceDirectory) || !statSync(sourceDirectory).isDirectory()) continue;
+    for (const name of readdirSync(sourceDirectory).filter((item) => /\.ya?ml$/i.test(item)).sort()) {
+      const filePath = path.join(sourceDirectory, name);
+      if (!sources.some((item) => comparablePath(item.filePath) === comparablePath(filePath))) {
+        sources.push({ filePath, name: path.relative(directory, filePath) || name });
+      }
+    }
+  }
+  return sources;
+}
+
 export function validateProgressDirectory(directoryPath) {
-  const files = readdirSync(directoryPath)
-    .filter((name) => /\.ya?ml$/i.test(name))
-    .sort();
-  const entries = files.map((name) => ({
+  const entries = ledgerSources(directoryPath).map(({ filePath, name }) => ({
     name,
-    document: parseProgressYaml(readFileSync(path.join(directoryPath, name), "utf8")),
+    document: parseProgressYaml(readFileSync(filePath, "utf8")),
   }));
   const issues = entries.flatMap(({ name, document }) =>
     validateProgress(document).map((issue) => ({

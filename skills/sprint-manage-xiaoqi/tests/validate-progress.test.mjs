@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -46,6 +46,64 @@ test("accepts a Store ledger with independent code repositories", async () => {
   assert.deepEqual(validateProgress(await fixture("valid-store.yaml")), []);
 });
 
+test("allows a prepared Store ledger to enter coding without top-level workspace fields", async () => {
+  const document = await fixture("valid-store.yaml");
+  document.交付状态 = "coding";
+  document.协作.分支 = null;
+  document.协作.工作区 = null;
+  document.证据索引.apply = {
+    kind: "apply",
+    command: "apply",
+    exit_code: 0,
+    checked_at: "2026-08-27T10:00:00+08:00",
+    summary: "applied",
+  };
+  assert(
+    !validateProgress(document).some(
+      (issue) => issue.code === "missing-workspace-isolation",
+    ),
+  );
+});
+
+test("records each Store repository HEAD in apply evidence", async () => {
+  const storeRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-store-ledger-"));
+  const apiRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-store-api-"));
+  const webRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-store-web-"));
+  const commitRepository = (root, name) => {
+    execFileSync("git", ["init"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "Xiaoqi Test"], { cwd: root });
+    execFileSync("git", ["config", "user.email", "xiaoqi@example.test"], { cwd: root });
+    execFileSync("git", ["commit", "--allow-empty", "-m", name], { cwd: root });
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  };
+  const apiCommit = commitRepository(apiRoot, "api");
+  const webCommit = commitRepository(webRoot, "web");
+  const source = (await fixtureSource("valid-store.yaml"))
+    .replace("E:/plans/team-plans", storeRoot.replaceAll("\\", "/"))
+    .replace("E:/src/checkout-api", apiRoot.replaceAll("\\", "/"))
+    .replace("E:/src/checkout-web", webRoot.replaceAll("\\", "/"))
+    .replace("E:/src/checkout-api/.worktrees/story-store", apiRoot.replaceAll("\\", "/"))
+    .replace("E:/src/checkout-web/.worktrees/story-store", webRoot.replaceAll("\\", "/"));
+  const ledgerPath = path.join(storeRoot, "story-store.yaml");
+  await writeFile(ledgerPath, source);
+
+  await advanceProgress(
+    ledgerPath,
+    "coding",
+    {
+      kind: "apply",
+      command: "apply",
+      exit_code: 0,
+      checked_at: "2026-08-27T10:00:00+08:00",
+      summary: "applied",
+    },
+    "alice",
+  );
+
+  const updated = parseProgressYaml(await readFile(ledgerPath, "utf8"));
+  assert.equal(updated.证据索引.apply.commit, `checkout-api@${apiCommit.slice(0, 12)},checkout-web@${webCommit.slice(0, 12)}`);
+});
+
 test("rejects duplicate code repository identities and overlapping scopes", async () => {
   const document = await fixture("valid-store.yaml");
   document.代码仓库[1].id = document.代码仓库[0].id;
@@ -78,6 +136,27 @@ test("rejects shared changes with missing integration data, dependency cycles, a
   assert(codes.has("missing-integration-branch"));
   assert(codes.has("lane-dependency-cycle"));
   assert(codes.has("lane-write-scope-conflict"));
+});
+
+test("requires a reason for cancelled flows", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.流程状态 = "cancelled";
+  document.推荐动作 = null;
+  const codes = new Set(validateProgress(document).map((issue) => issue.code));
+  assert(codes.has("missing-cancellation-reason"));
+});
+
+test("rejects cancelled flows with successful finish evidence", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.流程状态 = "cancelled";
+  document.推荐动作 = null;
+  document.事件日志 = [{ kind: "workflow-cancelled", reason: "obsolete" }];
+  document.证据索引.finish = { outcome: "completed", result: "kept" };
+  assert(
+    validateProgress(document).some(
+      (issue) => issue.code === "cancelled-has-finish-evidence",
+    ),
+  );
 });
 
 test("rejects closed flows whose delivery state disagrees with finish evidence", async () => {
@@ -115,6 +194,41 @@ test("rejects coding ledgers without an approved proposal decision", async () =>
       (issue) => issue.code === "missing-proposal-confirmation",
     ),
   );
+});
+
+test("directory validation aggregates requirement ledgers from Git worktrees", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-worktree-ledgers-"));
+  const requirementsDir = path.join(projectRoot, "sprint-manage", "requirements");
+  await writeFile(path.join(projectRoot, "README.md"), "test\n");
+  execFileSync("git", ["init"], { cwd: projectRoot });
+  execFileSync("git", ["config", "user.name", "Xiaoqi Test"], { cwd: projectRoot });
+  execFileSync("git", ["config", "user.email", "xiaoqi@example.test"], { cwd: projectRoot });
+  execFileSync("git", ["add", "README.md"], { cwd: projectRoot });
+  execFileSync("git", ["commit", "-m", "initial"], { cwd: projectRoot });
+  const worktree = path.join(projectRoot, ".worktrees", "story-1002");
+  execFileSync("git", ["worktree", "add", "-b", "feature/story-1002", worktree], { cwd: projectRoot });
+  await mkdir(requirementsDir, { recursive: true });
+  await mkdir(path.join(worktree, "sprint-manage", "requirements"), { recursive: true });
+  const first = await fixtureSource("valid-single.yaml");
+  const second = first
+    .replaceAll("story-1001", "story-1002")
+    .replace('负责人: "alice"', '负责人: "bob"')
+    .replace('updated_by: "alice"', 'updated_by: "bob"')
+    .replace('分支: "feature/story-1001"', '分支: "feature/story-1002"')
+    .replace('工作区: ".worktrees/story-1001"', '工作区: "."')
+    .replace('冲突键: []', '冲突键:\n  - "db:migration"');
+  const firstWithConflict = first.replace(
+    "冲突键: []",
+    '冲突键:\n  - "db:migration"',
+  );
+  await writeFile(path.join(requirementsDir, "story-1001.yaml"), firstWithConflict);
+  await writeFile(path.join(worktree, "sprint-manage", "requirements", "story-1002.yaml"), second);
+
+  const codes = new Set(
+    (await validateProgressDirectory(requirementsDir)).map((issue) => issue.code),
+  );
+  assert(codes.has("active-conflict-key"));
+  assert(codes.has("requirement-write-scope-conflict"));
 });
 
 test("directory validation detects duplicate branches, worktrees, and active conflict keys", async () => {
