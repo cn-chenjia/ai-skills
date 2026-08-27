@@ -365,7 +365,7 @@ test("keeps ledger and collaboration details in their focused references", async
   assert.match(state, /requirements\/<id>\.yaml/);
   assert.match(state, /账本锁与版本/);
   assert.match(state, /ledger-lock\.mjs/);
-  assert.match(state, /local\/session\.yaml.*不提交/s);
+  assert.match(state, /不维护共享的本地会话状态文件/);
   assert.match(collaboration, /单写者/);
   assert.match(collaboration, /独立.*branch.*worktree/s);
   assert.match(collaboration, /write_scope/);

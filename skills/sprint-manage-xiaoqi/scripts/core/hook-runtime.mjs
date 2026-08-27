@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // Author: CJ <chenjia@fehorizon.com>
 
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
+import { existsSync } from "node:fs";
 
 import { assertSafeAction } from "../policies/command-safety.mjs";
 import { runLifecycleHook } from "../lifecycle.mjs";
@@ -20,19 +19,8 @@ function actor(event) {
   return event.actor ?? "xiaoqi";
 }
 
-function hasActiveXiaoqiSession(event) {
-  if (!event.ledger) return false;
-  const sessionPath = path.join(
-    event.cwd ?? path.dirname(path.dirname(event.ledger)),
-    "sprint-manage",
-    "local",
-    "session.yaml",
-  );
-  if (!existsSync(sessionPath) || !existsSync(event.ledger)) return false;
-
-  const session = readFileSync(sessionPath, "utf8");
-  const requirementId = path.basename(event.ledger, path.extname(event.ledger));
-  return new RegExp(`(?:当前需求|current_requirement)\\s*:\\s*["']?${requirementId}["']?(?:\\s|$)`, "i").test(session);
+function hasSelectedRequirement(event) {
+  return Boolean(event.ledger && existsSync(event.ledger));
 }
 
 function lifecyclePayload(event, outcome = undefined) {
@@ -94,7 +82,7 @@ function record(event, hook, outcome = undefined) {
 export function handleNormalizedEvent(input) {
   const event = assertNormalizedEvent(input);
 
-  if (event.event === "unknown" || !hasActiveXiaoqiSession(event)) {
+  if (event.event === "unknown" || !hasSelectedRequirement(event)) {
     return response("allow");
   }
 

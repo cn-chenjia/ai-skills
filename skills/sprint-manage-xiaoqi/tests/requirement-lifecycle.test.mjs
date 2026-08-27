@@ -68,7 +68,7 @@ test("initializes the first tracked requirement before implementation", async ()
   assert.equal(ledger.用户决策.at(-1).actor, "requester");
 
   const gitignore = await readFile(path.join(projectRoot, ".gitignore"), "utf8");
-  assert.match(gitignore, /^sprint-manage\/local\/$/m);
+  assert.doesNotMatch(gitignore, /^sprint-manage\/local\/$/m);
   assert.match(gitignore, /^sprint-manage\/requirements\/\*\.yaml\.lock$/m);
 });
 
@@ -159,7 +159,7 @@ test("closes a requirement only after archive and finish evidence exist", async 
   assert.equal(closed.事件日志.at(-1).kind, "workflow-closed");
 });
 
-test("marks the local session closed when it belongs to the closed requirement", async () => {
+test("does not create or update local session state when closing a requirement", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-close-session-"));
   const ledgerPath = path.join(directory, "sprint-manage", "requirements", "story-1001.yaml");
   const source = (await readFile(
@@ -178,18 +178,12 @@ test("marks the local session closed when it belongs to the closed requirement",
     );
   await mkdir(path.dirname(ledgerPath), { recursive: true });
   await writeFile(ledgerPath, closable, "utf8");
-  await mkdir(path.join(directory, "sprint-manage", "local"), { recursive: true });
-  await writeFile(
-    path.join(directory, "sprint-manage", "local", "session.yaml"),
-    '当前用户: "alice"\n当前需求: "story-1001"\n',
-  );
-
   const result = runScript(closeScript, [ledgerPath, "alice"], directory);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(
-    await readFile(path.join(directory, "sprint-manage", "local", "session.yaml"), "utf8"),
-    /会话状态: "closed"/,
+  assert.equal(
+    existsSync(path.join(directory, "sprint-manage", "local", "session.yaml")),
+    false,
   );
 });
 

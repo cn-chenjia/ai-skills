@@ -26,7 +26,6 @@ import {
 } from "./validate-progress.mjs";
 
 const IGNORE_LINES = [
-  "sprint-manage/local/",
   "sprint-manage/requirements/*.yaml.lock",
   ".worktrees/",
 ];
@@ -177,16 +176,6 @@ function ensureIgnoreRules(projectRoot) {
   writeFileSync(ignorePath, `${source}${prefix}${missing.join("\n")}\n`, "utf8");
 }
 
-function writeSession(worktree, owner, requirementId) {
-  const localDir = path.join(worktree, "sprint-manage", "local");
-  mkdirSync(localDir, { recursive: true });
-  writeFileSync(
-    path.join(localDir, "session.yaml"),
-    `当前用户: ${JSON.stringify(owner)}\n当前需求: ${JSON.stringify(requirementId)}\n`,
-    "utf8",
-  );
-}
-
 function workspacePath(projectRoot, configured) {
   if (!configured || configured === ".") return projectRoot;
   return path.resolve(projectRoot, configured);
@@ -256,7 +245,7 @@ export function hasBlockingChanges(projectRoot) {
     .split(/\r?\n/)
     .filter(Boolean)
     .some((line) => {
-      // untracked 的技能自身文件（账本、session 等）不阻塞切换分支
+      // 未跟踪的需求账本不阻塞切换分支
       if (line.startsWith("?? ") && /sprint-manage\//.test(line.slice(3))) {
         return false;
       }
@@ -341,7 +330,6 @@ function prepareWorkspace(ledgerPath, projectRoot, owner) {
     分支: branch,
     工作区: ".",
   });
-  writeSession(worktree, owner, document.编号);
 
   return {
     outcome: "completed",

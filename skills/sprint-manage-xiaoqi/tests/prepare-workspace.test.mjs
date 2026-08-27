@@ -138,15 +138,13 @@ test("prepares the first coding requirement in the current worktree", async () =
   assert.equal(ledger.协作.工作区, ".");
   assert.equal(ledger.交付状态, "not-started");
 
-  const session = readFileSync(
-    path.join(projectRoot, "sprint-manage", "local", "session.yaml"),
-    "utf8",
+  assert.equal(
+    existsSync(path.join(projectRoot, "sprint-manage", "local", "session.yaml")),
+    false,
   );
-  assert.match(session, /当前用户: "alice"/);
-  assert.match(session, /当前需求: "story-1001"/);
 
   const gitignore = readFileSync(path.join(projectRoot, ".gitignore"), "utf8");
-  assert.match(gitignore, /^sprint-manage\/local\/$/m);
+  assert.doesNotMatch(gitignore, /^sprint-manage\/local\/$/m);
   assert.match(gitignore, /^sprint-manage\/requirements\/\*\.yaml\.lock$/m);
   assert.match(gitignore, /^\.worktrees\/$/m);
 });
@@ -193,14 +191,13 @@ test("creates a separate worktree for a second coding requirement", async () => 
   assert.equal(ledger.协作.工作区, ".");
   assert.equal(ledger.交付状态, "not-started");
 
-  const session = readFileSync(
-    path.join(expectedWorktree, "sprint-manage", "local", "session.yaml"),
-    "utf8",
+  assert.equal(
+    existsSync(path.join(expectedWorktree, "sprint-manage", "local", "session.yaml")),
+    false,
   );
-  assert.match(session, /当前需求: "story-1002"/);
 });
 
-test("moves an uncommitted second ledger into its isolated worktree without replacing the active session", async () => {
+test("moves an uncommitted second ledger into its isolated worktree without creating session state", async () => {
   const projectRoot = await createProject();
   const firstLedger = await writeLedger(projectRoot, "story-1001");
   const firstSource = await readFile(firstLedger, "utf8");
@@ -215,11 +212,6 @@ test("moves an uncommitted second ledger into its isolated worktree without repl
   git(projectRoot, "add", "sprint-manage/requirements/story-1001.yaml");
   git(projectRoot, "commit", "-m", "add active requirement");
   git(projectRoot, "checkout", "-b", "feature/story-1001");
-  await mkdir(path.join(projectRoot, "sprint-manage", "local"), { recursive: true });
-  await writeFile(
-    path.join(projectRoot, "sprint-manage", "local", "session.yaml"),
-    '当前用户: "alice"\n当前需求: "story-1001"\n',
-  );
   const secondLedger = await writeLedger(projectRoot, "story-1002");
 
   const result = prepare(secondLedger, projectRoot);
@@ -234,13 +226,13 @@ test("moves an uncommitted second ledger into its isolated worktree without repl
   );
   assert.equal(existsSync(secondLedger), false);
   assert.equal(existsSync(targetLedger), true);
-  assert.match(
-    await readFile(path.join(projectRoot, "sprint-manage", "local", "session.yaml"), "utf8"),
-    /当前需求: "story-1001"/,
+  assert.equal(
+    existsSync(path.join(projectRoot, "sprint-manage", "local", "session.yaml")),
+    false,
   );
-  assert.match(
-    await readFile(path.join(worktree, "sprint-manage", "local", "session.yaml"), "utf8"),
-    /当前需求: "story-1002"/,
+  assert.equal(
+    existsSync(path.join(worktree, "sprint-manage", "local", "session.yaml")),
+    false,
   );
   const ledger = parseProgressYaml(await readFile(targetLedger, "utf8"));
   assert.equal(ledger.协作.工作区, ".");

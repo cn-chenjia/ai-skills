@@ -24,7 +24,6 @@ import {
 } from "./validate-progress.mjs";
 
 const IGNORE_LINES = [
-  "sprint-manage/local/",
   "sprint-manage/requirements/*.yaml.lock",
 ];
 

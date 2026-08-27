@@ -1,7 +1,7 @@
 // Owner: CJ <chenjia@fehorizon.com>
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -79,12 +79,6 @@ test("Trae adapter denies unsafe actions using Trae response fields and exit cod
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-trae-safety-"));
   const ledger = path.join(directory, "story-1001.yaml");
   await writeFile(ledger, await readFile(fixture, "utf8"));
-  await mkdir(path.join(directory, "sprint-manage", "local"), { recursive: true });
-  await writeFile(
-    path.join(directory, "sprint-manage", "local", "session.yaml"),
-    "当前用户: alice\n当前需求: story-1001\n",
-    "utf8",
-  );
   const result = handleTraePayload({
     event: "PreToolUse",
     cwd: directory,
@@ -104,12 +98,6 @@ test("Trae hook response uses Trae continue and stopReason fields", async () => 
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-trae-response-"));
   const ledger = path.join(directory, "story-1001.yaml");
   await writeFile(ledger, await readFile(fixture, "utf8"));
-  await mkdir(path.join(directory, "sprint-manage", "local"), { recursive: true });
-  await writeFile(
-    path.join(directory, "sprint-manage", "local", "session.yaml"),
-    "当前用户: alice\n当前需求: story-1001\n",
-    "utf8",
-  );
   const allowed = handleTraePayload({
     event: "PreToolUse",
     cwd: directory,
@@ -132,12 +120,6 @@ test("Trae adapter records a session event in the selected ledger", async () => 
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-trae-adapter-"));
   const ledger = path.join(directory, "story-1001.yaml");
   await writeFile(ledger, await readFile(fixture, "utf8"));
-  await mkdir(path.join(directory, "sprint-manage", "local"), { recursive: true });
-  await writeFile(
-    path.join(directory, "sprint-manage", "local", "session.yaml"),
-    "当前用户: alice\n当前需求: story-1001\n",
-    "utf8",
-  );
 
   const result = handleTraePayload({
     event: "SessionStart",

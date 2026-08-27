@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Author: CJ <chenjia@fehorizon.com>
 
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import path from "node:path";
 
 import { handleNormalizedEvent, normalizedExitCode } from "../core/hook-runtime.mjs";
@@ -58,23 +58,7 @@ function discoverLedger(payload) {
   } catch {
     return undefined;
   }
-  if (files.length === 1) return files[0];
-
-  const sessionPath = path.join(root, "sprint-manage", "local", "session.yaml");
-  try {
-    const session = readFileSync(sessionPath, "utf8");
-    const match = session.match(
-      /(?:current|当前|当前需求|current_requirement)[^:]*:\s*["']?([^"'\s]+)["']?/i,
-    );
-    if (!match) return undefined;
-    return (
-      files.find(
-        (file) => path.basename(file, path.extname(file)) === match[1],
-      ) ?? undefined
-    );
-  } catch {
-    return undefined;
-  }
+  return files.length === 1 ? files[0] : undefined;
 }
 
 export function normalizeCodexEvent(payload = {}) {

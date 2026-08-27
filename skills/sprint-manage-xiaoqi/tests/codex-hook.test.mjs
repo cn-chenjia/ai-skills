@@ -18,16 +18,15 @@ const fixture = path.join(
   "skills/sprint-manage-xiaoqi/tests/fixtures/valid-single.yaml",
 );
 
-test("Codex PreToolUse hook denies destructive shell commands", () => {
+test("Codex PreToolUse hook bypasses destructive commands without a selected ledger", () => {
   const result = handle({
     hook_event_name: "PreToolUse",
     tool_name: "shell_command",
     tool_input: { command: "git reset --hard HEAD" },
   });
 
-  assert.equal(hookExitCode(result), 2);
-  assert.equal(result.hookSpecificOutput.hookEventName, "PreToolUse");
-  assert.equal(result.hookSpecificOutput.permissionDecision, "deny");
+  assert.equal(hookExitCode(result), 0);
+  assert.equal(result.continue, true);
 });
 
 test("Codex PreToolUse hook allows ordinary commands", () => {

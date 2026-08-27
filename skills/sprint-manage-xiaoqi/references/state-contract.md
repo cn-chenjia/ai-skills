@@ -9,13 +9,10 @@
   sprint-manage/
     requirements/
       <id>.yaml
-    local/
-      session.yaml
 ```
 
 - 每个需求工作区持有该需求的 `requirements/<id>.yaml`，账本随需求分支和 worktree 隔离。
-- `local/session.yaml` 记录当前用户、当前需求和可选的本地会话状态，必须加入 `.gitignore`，不提交 Git。
-- 创建账本时不得覆盖当前工作区的 session；`prepare-workspace` 确定目标 worktree 并移入账本后，才在目标工作区写入 session。
+- 当前会话的目标需求由明确的需求编号或 `change_id` 确定；不维护共享的本地会话状态文件。
 - 旧 `sprint-progress.yaml` 迁移完成后移入 archive，不再写回。
 
 ## 账本锁与版本
@@ -161,7 +158,7 @@ node scripts/ledger-lock.mjs commit \
   sprint-manage/requirements/story-2000.yaml <token>
 ```
 
-将 `sprint-manage/local/` 和 `*.yaml.lock` 加入 `.gitignore`。
+将 `*.yaml.lock` 加入 `.gitignore`。
 
 ## 可执行状态门禁
 
@@ -311,9 +308,8 @@ finish 证据是否齐全。
 3. 设置 `schema_version: 4`、`document_type: requirement` 和 `revision: 1`。
 4. 当前操作者作为初始负责人。
 5. branch 或 worktree 无法确认时设为 blocked，不猜测。
-6. 将 `当前需求` 写入本地 `local/session.yaml`，不进入共享账本。
-7. 保留 change_id、状态、阻塞、用户决策和证据索引。
-8. 所有需求通过目录校验后，旧文件才移入 archive。
+6. 保留 change_id、状态、阻塞、用户决策和证据索引。
+7. 所有需求通过目录校验后，旧文件才移入 archive。
 
 ## 结果返回
 
