@@ -3,8 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createCli } from "../apps/cli/index.mjs";
 import { createSqliteRepository } from "../infrastructure/persistence/sqlite-repository.mjs";
+
+const execFileAsync = promisify(execFile);
 
 test("CLI creates requirement and status reads planningRoot SQLite", async () => {
   const planningRoot = fs.mkdtempSync(path.join(os.tmpdir(), "xiaoqi-cli-"));
@@ -20,6 +24,13 @@ test("CLI returns readable non-zero parameter errors", async () => {
   const result = await createCli(["requirement", "create"]);
   assert.equal(result.exitCode, 1);
   assert.match(result.stderr, /title/);
+});
+
+test("CLI executable entry reports unknown commands", async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, [path.resolve("apps/cli/index.mjs"), "unknown"]),
+    (error) => error.code === 1 && /用法|未知命令|无法识别/.test(error.stderr),
+  );
 });
 
 test("status does not read a code repository ledger", async () => {

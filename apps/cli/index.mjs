@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { assertSafeAction } from "../../skills/sprint-manage-xiaoqi/scripts/policies/command-safety.mjs";
 import fsPromises from "node:fs/promises";
@@ -142,7 +143,7 @@ export async function createCli(argv = [], dependencies = {}) {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1] ?? "")) {
   const result = await createCli(process.argv.slice(2));
   process.stdout.write(result.stdout);
   process.stderr.write(result.stderr);
