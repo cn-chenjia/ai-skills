@@ -93,12 +93,14 @@ OpenSpec root 解析失败时进入 blocked，不得回退到当前代码仓库�
 
 | 当前情况 | 读取 |
 | --- | --- |
-| 新建、恢复、查看需求；账本或状态问题 | [state-contract.md](references/state-contract.md) |
-| 开始、继续、更新、验证；普通执行失败 | [step-details.md](references/step-details.md) |
-| 复杂且明确需要多人协作的需求，或多需求、多人、分支、工作区或写入范围冲突 | [collaboration.md](references/collaboration.md) |
-| 已到 `ready`；PR、合并、保留、归档、关闭需求或关闭整个迭代 | [closing.md](references/closing.md) |
-| 安装、Hook、Codex、Trae、初始化检查或宿主异常 | [runtime-contract.md](references/runtime-contract.md) |
-| 底层事件或适配器数据 | [event-contract.md](references/event-contract.md) |
+| 新建需求 | [requirement command](../../apps/cli/commands/requirement.mjs) |
+| 查看需求或交付状态 | [status command](../../apps/cli/commands/status.mjs) |
+| 开始、审批和准备交付 | [start/prepare services](../../application/start-delivery.mjs) |
+| 实施、检查和评审 | [implementation service](../../application/implement-work-item.mjs) |
+| 验证、归档和关闭交付 | [close service](../../application/close-delivery.mjs) |
+| 多仓库、分支、工作区和冲突处理 | [workspace manager](../../infrastructure/workspace-manager.mjs) |
+| 安装、Hook、Codex、Trae、初始化检查或宿主异常 | [Hook runtime](scripts/core/hook-runtime.mjs) |
+| 底层事件或适配器数据 | [event contract](scripts/core/event-contract.mjs) |
 
 参考文件只执行当前动作所需的规则，不拥有会话或流程控制权。它们不得直接跳转到另一份参考；需要新动作时先返回主技能。
 
@@ -122,7 +124,7 @@ OpenSpec root 解析失败时进入 blocked，不得回退到当前代码仓库�
 
 普通测试、构建、验证或规格检查失败时，先分析并修复，再重试原动作；相同错误最多自动修复 3 次。权限、破坏性操作、业务冲突、无法判断原因或重试耗尽，交给人工处理。
 
-`ready` 不是合并结果。到达 `ready` 后必须等待用户选择 PR、合并或保留分支，再由主技能读取 [closing.md](references/closing.md)。
+`ready` 不是合并结果。到达 `ready` 后必须等待用户选择 PR、合并或保留分支，再由主技能调用交付关闭服务完成收尾。
 
 交付状态只能沿着真实证据允许的方向推进。`closed` 只有在归档、分支收尾和最终交付结果都被证实后才能成立。
 
@@ -158,9 +160,8 @@ OpenSpec root 解析失败时进入 blocked，不得回退到当前代码仓库�
 
 ## Resources
 
-- [state-contract.md](references/state-contract.md)：账本、状态、证据、锁、版本和迁移。
-- [step-details.md](references/step-details.md)：动作选择、连续执行、验证和失败恢复。
-- [collaboration.md](references/collaboration.md)：多需求、多人、分支、工作区和写入范围冲突。
-- [closing.md](references/closing.md)：`ready` 后的用户选择、同步、归档、收尾和关闭。
-- [runtime-contract.md](references/runtime-contract.md)：Hook、宿主、安装、初始化检查和运行时边界。
-- [event-contract.md](references/event-contract.md)：通用事件协议和适配器数据约定。
+- [交付控制平面设计](../../openspec/changes/xiaoqi-delivery-control-plane/design.md)：规划根、SQLite、四阶段交付和证据链。
+- [交付控制平面任务](../../openspec/changes/xiaoqi-delivery-control-plane/tasks.md)：实施任务和验收边界。
+- [协作规则](references/collaboration.md)：多需求、多人、分支、工作区和写入范围冲突。
+- [事件契约](scripts/core/event-contract.mjs)：通用事件协议和适配器数据约定。
+- [控制平面运行时](../../infrastructure/control-plane-runtime.mjs)：SQLite handler、runner 和动作解析。
