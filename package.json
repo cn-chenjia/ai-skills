@@ -2,6 +2,9 @@
   "name": "ai-skills",
   "private": true,
   "type": "module",
+  "bin": {
+    "xiaoqi": "./apps/cli/index.mjs"
+  },
   "engines": {
     "node": ">=22.5.0"
   },

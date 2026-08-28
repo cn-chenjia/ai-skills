@@ -5,6 +5,8 @@ import { classifyRequest } from "../scripts/request-routing.mjs";
 import { resolveNextAction } from "../scripts/action-resolver.mjs";
 import { runUntilReady } from "../scripts/auto-runner.mjs";
 import { startAutomation } from "../scripts/start-automation.mjs";
+import fs from "node:fs";
+import path from "node:path";
 
 function evidence(kind) {
   return { kind, command: `xiaoqi-${kind}`, exit_code: 0, commit: "abc123", checked_at: "2026-08-17T10:00:00+08:00", summary: `${kind} passed` };
@@ -27,6 +29,29 @@ function createPlane() {
     },
   };
 }
+
+test("startAutomation delegates production execution through the CLI", async () => {
+  const source = fs.readFileSync(path.resolve("skills/sprint-manage-xiaoqi/scripts/start-automation.mjs"), "utf8");
+  assert.match(source, /xiaoqi|apps[\\\\/]cli/);
+  assert.doesNotMatch(source, /createControlPlaneRuntime/);
+});
+
+test("startAutomation uses the CLI for production automation", async () => {
+  const calls = [];
+  const result = await startAutomation({
+    request: { text: "修复订单查询为空时的报错", acceptanceCriteria: ["空结果返回正常提示"], changedFiles: ["src/order/query.js"] },
+    owner: "alice",
+    deliveryId: "d1",
+    planningRoot: "e:/plans",
+    runCli: async (args) => {
+      calls.push(args);
+      return { exitCode: 0, stdout: JSON.stringify({ status: "ready", steps: [] }), stderr: "" };
+    },
+  });
+  assert.equal(result.status, "ready");
+  assert.deepEqual(calls[0].slice(0, 3), ["automation", "run", "d1"]);
+  assert.ok(calls[0].includes("--planning-root"));
+});
 
 test("classifies clear and risky requests", () => {
   assert.equal(classifyRequest({ text: "修复订单查询为空时的报错", acceptanceCriteria: ["空结果返回正常提示"], changedFiles: ["src/order/query.js"] }).status, "auto-confirmed");

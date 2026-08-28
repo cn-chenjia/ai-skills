@@ -29,10 +29,19 @@ export function parseOpenSpecContext(stdout) {
 }
 
 export function resolvePlanningRoot({ cwd, execute }) {
-  const result = execute("openspec", ["context", "--json"], { cwd });
-  if (result?.status !== 0) {
-    throw new Error(`OpenSpec context 执行失败${result?.stderr ? `: ${result.stderr.trim()}` : ""}`);
+  let result;
+  try {
+    result = execute("openspec", ["context", "--json"], { cwd });
+  } catch (error) {
+    throw new Error(`当前项目尚未执行 openspec init，请先执行 openspec init: ${error.message}`);
   }
-  const context = parseOpenSpecContext(result?.stdout ?? "");
-  return { rootPath: context.rootPath, mode: context.mode, source: "openspec-context" };
+  if (result?.status !== 0) {
+    throw new Error(`当前项目尚未执行 openspec init，请先执行 openspec init${result?.stderr ? `: ${result.stderr.trim()}` : ""}`);
+  }
+  try {
+    const context = parseOpenSpecContext(result?.stdout ?? "");
+    return { rootPath: context.rootPath, mode: context.mode, source: "openspec-context" };
+  } catch (error) {
+    throw new Error(`当前项目尚未执行 openspec init，请先执行 openspec init: ${error.message}`);
+  }
 }

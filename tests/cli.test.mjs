@@ -7,8 +7,13 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createCli } from "../apps/cli/index.mjs";
 import { createSqliteRepository } from "../infrastructure/persistence/sqlite-repository.mjs";
+import { assertSafeAction } from "../infrastructure/policies/command-safety.mjs";
 
 const execFileAsync = promisify(execFile);
+
+test("CLI security policy is provided by infrastructure", () => {
+  assert.throws(() => assertSafeAction({ command: "git reset --hard" }), /destructive-command-denied/);
+});
 
 test("CLI creates requirement and status reads planningRoot SQLite", async () => {
   const planningRoot = fs.mkdtempSync(path.join(os.tmpdir(), "xiaoqi-cli-"));

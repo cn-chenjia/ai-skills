@@ -33,6 +33,20 @@ test("解析失败不得回退", () => {
   assert.throws(() => resolvePlanningRoot({ cwd: "C:\\repos\\project", execute: () => ({ status: 1, stdout: "", stderr: "failed" }) }), /failed/);
 });
 
+test("OpenSpec context 返回非零时提示先执行 openspec init", () => {
+  assert.throws(
+    () => resolvePlanningRoot({ cwd: "C:\\repos\\project", execute: () => ({ status: 2, stdout: "", stderr: "No OpenSpec root" }) }),
+    /请先执行 openspec init/,
+  );
+});
+
+test("openspec 命令不存在时提示先执行 openspec init", () => {
+  assert.throws(
+    () => resolvePlanningRoot({ cwd: "C:\\repos\\project", execute: () => { const error = new Error("spawn openspec ENOENT"); error.code = "ENOENT"; throw error; } }),
+    /请先执行 openspec init/,
+  );
+});
+
 test("执行小七目录和 OpenSpec 标准工件边界策略", () => {
   const root = "C:\\Plans\\Team";
   assert.equal(getXiaoqiRoot(root), path.join(root, "sprint-manage"));
