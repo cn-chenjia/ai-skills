@@ -1,120 +1,53 @@
 #!/usr/bin/env node
 // Author: CJ <chenjia@fehorizon.com>
 
-import { existsSync } from "node:fs";
-
 import { assertSafeAction } from "../policies/command-safety.mjs";
-import { runLifecycleHook } from "../lifecycle.mjs";
 import { assertNormalizedEvent } from "./event-contract.mjs";
+import { createControlPlaneRuntime } from "../../../../infrastructure/control-plane-runtime.mjs";
 
-function response(decision, reason = undefined) {
+function response(decision, reason = undefined, result = undefined) {
   return {
     version: 1,
     decision,
-    ...(reason ? { reason } : {}),
+    reason: reason ?? `hook-${decision}`,
+    ...(result === undefined ? {} : { result }),
   };
 }
 
-function actor(event) {
-  return event.actor ?? "xiaoqi";
-}
-
-function hasSelectedRequirement(event) {
-  return Boolean(event.ledger && existsSync(event.ledger));
-}
-
-function lifecyclePayload(event, outcome = undefined) {
-  const action = event.action ?? {};
-  const payload = {
-    action: action.name ?? event.event,
-    tool_name: action.tool ?? action.name ?? "unknown-tool",
-    source: event.source,
-    summary:
-      action.summary ??
-      action.command ??
-      `${event.event} ${action.name ?? "unknown-action"}`,
+function defaultControlPlane() {
+  return {
+    handleEvent() {
+      return response("deny", "control-plane-handler-missing");
+    },
   };
-  if (action.command) payload.command = action.command;
-  if (event.result) payload.result = event.result;
-  if (failedResult(event)) {
-    payload.failure_key = [
-      action.name ?? event.event,
-      event.result?.exitCode ?? "",
-      event.result?.error ?? action.summary ?? action.command ?? "failure",
-    ].join(":");
-    payload.retryable = event.result?.retryable !== false;
-  }
-  if (outcome !== undefined) payload.outcome = outcome;
-  return payload;
 }
 
-function failedResult(event) {
-  return Boolean(
-    event.result?.error ||
-      event.result?.ok === false ||
-      (Number.isInteger(event.result?.exitCode) && event.result.exitCode !== 0),
-  );
-}
-
-// 这些错误代表流程门禁（blocked/closed 需求不得继续执行），必须向上传播为 deny
-const PROPAGATABLE_HOOK_ERRORS = new Set([
-  "workflow-blocked",
-  "workflow-closed",
-  "missing-action",
-]);
-
-function record(event, hook, outcome = undefined) {
-  if (!event.ledger) return;
-  try {
-    runLifecycleHook(
-      hook,
-      event.ledger,
-      lifecyclePayload(event, outcome),
-      actor(event),
-    );
-  } catch (error) {
-    if (PROPAGATABLE_HOOK_ERRORS.has(error.code)) throw error;
-    // 观测性记录失败只告警，不阻塞工具执行
-    process.stderr.write(`xiaoqi-lifecycle-record-failed: ${error.message}\n`);
-  }
-}
-
-export function handleNormalizedEvent(input) {
+export function handleNormalizedEvent(input, { controlPlane, ...runtimeOptions } = {}) {
   const event = assertNormalizedEvent(input);
+  const resolvedControlPlane = controlPlane ?? (() => {
+    try {
+      return createControlPlaneRuntime({ cwd: event.cwd, planningRoot: event.planningRoot, deliveryId: event.deliveryId, ...runtimeOptions });
+    } catch {
+      return defaultControlPlane();
+    }
+  })();
 
-  if (event.event === "unknown" || !hasSelectedRequirement(event)) {
-    return response("allow");
+  if (!event.planningRoot) return response("deny", "planning-root-required");
+  if (!event.deliveryId) return response("deny", "delivery-id-required");
+  if (typeof resolvedControlPlane?.handleEvent !== "function") {
+    return response("deny", "control-plane-handler-missing");
   }
+  if (event.event === "unknown") return response("deny", "unknown-event");
 
   try {
-    if (event.event === "before-action") {
-      assertSafeAction(event.action, event.cwd);
-      record(event, "before-action");
-      return response("allow");
-    }
-
-    if (event.event === "session-start") {
-      record(event, "session-start");
-      return response("allow");
-    }
-
-    if (event.event === "after-action") {
-      const failed = failedResult(event);
-      record(event, failed ? "on-failure" : "after-action", failed ? undefined : "completed");
-      return response("allow");
-    }
-
-    if (event.event === "stop") {
-      record(event, "after-action", "stopped");
-      return response("allow");
-    }
-
-    return response("allow");
+    if (event.event === "before-action") assertSafeAction(event.action, event.cwd);
+    const result = resolvedControlPlane.handleEvent(event);
+    if (!result || typeof result !== "object") return response("deny", "invalid-control-plane-result");
+    return result.decision
+      ? { ...result, version: 1, reason: result.reason ?? `hook-${result.decision}` }
+      : response("deny", "invalid-control-plane-result", result);
   } catch (error) {
-    if (event.event === "before-action") {
-      return response("deny", error.message);
-    }
-    return response("stop", error.message);
+    return response("deny", error.code ?? "control-plane-handler-error");
   }
 }
 

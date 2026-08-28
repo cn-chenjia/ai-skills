@@ -26,26 +26,39 @@ export function assertNormalizedEvent(event) {
   if (event.actor !== undefined && typeof event.actor !== "string") {
     fail("actor must be a string");
   }
-  if (event.ledger !== undefined && typeof event.ledger !== "string") {
-    fail("ledger must be a string");
+  if (event.planningRoot !== undefined && typeof event.planningRoot !== "string") {
+    fail("planningRoot must be a string");
   }
-  if (event.action !== undefined && typeof event.action !== "object") {
+  if (event.deliveryId !== undefined && typeof event.deliveryId !== "string") {
+    fail("deliveryId must be a string");
+  }
+  if (event.action !== undefined && (event.action === null || typeof event.action !== "object")) {
     fail("action must be an object");
   }
-  if (event.result !== undefined && typeof event.result !== "object") {
+  if (event.result !== undefined && (event.result === null || typeof event.result !== "object")) {
     fail("result must be an object");
   }
   return event;
 }
 
-export function normalizeGenericEvent(input) {
+import { resolveDeliverySelection } from "../../../../adapters/control-plane.mjs";
+import { resolveOpenSpecContext } from "../openspec-context.mjs";
+
+export function normalizeGenericEvent(input = {}) {
+  const planningRoot = input?.planningRoot ?? input?.planning_root ?? (() => {
+    try { return resolveOpenSpecContext(input?.cwd ?? process.cwd()).rootPath; } catch { return undefined; }
+  })();
   return assertNormalizedEvent({
     version: input?.version ?? 1,
     source: input?.source ?? "generic-json",
-    event: input?.event ?? "unknown",
+    event: NORMALIZED_EVENTS.has(input?.event) ? input.event : "unknown",
     actor: input?.actor,
     cwd: input?.cwd,
-    ledger: input?.ledger,
+    planningRoot,
+    deliveryId: resolveDeliverySelection({
+      deliveries: input?.deliveries ?? [],
+      deliveryId: input?.deliveryId ?? input?.delivery_id,
+    }),
     action: input?.action,
     result: input?.result,
   });

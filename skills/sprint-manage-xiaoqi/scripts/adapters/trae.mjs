@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 // Author: CJ <chenjia@fehorizon.com>
 
-import { readdirSync } from "node:fs";
-import path from "node:path";
-
 import { resolveOpenSpecContext } from "../openspec-context.mjs";
+import { createControlPlaneEvent, resolveDeliverySelection } from "../../../../adapters/control-plane.mjs";
 import {
   handleNormalizedEvent,
   normalizedExitCode,
@@ -129,25 +127,6 @@ function resultFrom(payload, body) {
   };
 }
 
-function discoverLedger(payload, cwd) {
-  let planningRoot = cwd;
-  try {
-    planningRoot = resolveOpenSpecContext(cwd).rootPath;
-  } catch {
-    return undefined;
-  }
-  const requirementsDir = path.join(planningRoot, "sprint-manage", "requirements");
-  let files = [];
-  try {
-    files = readdirSync(requirementsDir)
-      .filter((name) => /\.ya?ml$/i.test(name))
-      .map((name) => path.join(requirementsDir, name));
-  } catch {
-    return undefined;
-  }
-  return files.length === 1 ? files[0] : undefined;
-}
-
 export function normalizeTraeEvent(payload = {}) {
   const body = bodyFrom(payload);
   const rawEvent = eventName(payload, body);
@@ -158,8 +137,20 @@ export function normalizeTraeEvent(payload = {}) {
   const action = actionFrom(payload, body);
   const hasResult = event === "after-action";
 
-  return {
-    version: 1,
+  let context;
+  if (payload.planningRoot) context = { rootPath: payload.planningRoot };
+  else {
+    try {
+      context = resolveOpenSpecContext(cwd);
+    } catch {
+      context = undefined;
+    }
+  }
+  const deliveryId = resolveDeliverySelection({
+    deliveries: payload.deliveries ?? body.deliveries ?? [],
+    deliveryId: firstText(payload.deliveryId, payload.delivery_id, body.deliveryId, body.delivery_id, process.env.XIAOQI_DELIVERY_ID),
+  });
+  const eventPayload = createControlPlaneEvent({
     source: "trae",
     event,
     actor: firstText(
@@ -169,20 +160,25 @@ export function normalizeTraeEvent(payload = {}) {
       "trae",
     ),
     cwd,
-    ledger:
-      firstText(payload.ledger, body.ledger, process.env.XIAOQI_LEDGER) ??
-      discoverLedger(payload, cwd),
+    planningRoot: context?.rootPath,
+    deliveryId,
     action,
     result: hasResult ? resultFrom(payload, body) : undefined,
-  };
+  });
+  eventPayload.result = hasResult ? resultFrom(payload, body) : undefined;
+  return eventPayload;
 }
 
-export function handleTraePayload(payload) {
-  return toTraeResponse(handleNormalizedEvent(normalizeTraeEvent(payload)));
+export function handleTraePayload(payload, options = {}) {
+  try {
+    return toTraeResponse(handleNormalizedEvent(normalizeTraeEvent(payload), options));
+  } catch (error) {
+    return toTraeResponse({ decision: "deny", reason: error.code ?? "trae-hook-error" });
+  }
 }
 
-export function handleTraeNormalizedEvent(event) {
-  return handleNormalizedEvent(event);
+export function handleTraeNormalizedEvent(event, options = {}) {
+  return handleNormalizedEvent(event, options);
 }
 
 export function toTraeResponse(result) {

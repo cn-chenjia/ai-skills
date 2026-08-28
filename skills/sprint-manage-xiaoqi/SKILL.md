@@ -81,7 +81,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 
 准备工作区前，主技能必须评估需求是否复杂且明确需要多人协作。复杂性包括跨模块或公共链路、数据库或接口契约变化、tasks 超过 5 项或存在明显依赖、回归范围大，或存在多个写入范围不重叠的可独立任务。仅在同时满足复杂性和多人协作时，先路由协作评估门禁；`shared-change` 的集成分支、协作单元及冲突校验完整通过前不得准备工作区或进入 `apply`。其他需求按原流程准备工作区并持续执行。
 
-OpenSpec root 解析失败时进入 blocked，不得回退到当前代码仓库创建账本。Store 模式下 Store checkout 共享规划工作区，代码仓库按 `代码仓库` 列表分别使用独立 branch/worktree。
+OpenSpec root 解析失败时进入 blocked，不得回退到当前代码仓库创建账本。Store 模式下 Store checkout 共享规划工作区，代码仓库按 `代码仓库` 列表分别使用独立 branch/worktree。需求交付状态统一由控制平面维护；Trae、Codex 和通用 Hook 只转换控制平面事件并保留宿主响应格式。多需求场景必须显式提供 delivery ID，禁止通过 Store ID 或账本文件名猜测目标。
 
 账本存在但锁、版本、分支、工作区或证据不一致时，先转到状态或协作参考处理；未对账前不覆盖已有事实。
 

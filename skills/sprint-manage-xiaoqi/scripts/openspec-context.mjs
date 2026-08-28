@@ -3,6 +3,8 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 
+import { parseOpenSpecContext } from "../../../adapters/openspec/context.mjs";
+
 function formatDiagnostics(payload) {
   return (Array.isArray(payload?.status) ? payload.status : [])
     .map((item) => [item.code, item.message].filter(Boolean).join(": "))
@@ -19,9 +21,10 @@ export function resolveOpenSpecContext(cwd, options = {}) {
         encoding: "utf8",
       });
 
-  let payload;
+  let payload = null;
   try {
-    payload = result.stdout ? JSON.parse(result.stdout) : null;
+    const stdout = result.stdout?.toString?.() ?? result.stdout;
+    payload = stdout ? JSON.parse(stdout) : null;
   } catch (error) {
     if (result.error || result.status !== 0) {
       throw new Error(

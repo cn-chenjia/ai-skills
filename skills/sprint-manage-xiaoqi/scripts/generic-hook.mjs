@@ -28,8 +28,12 @@ function readStdin() {
   });
 }
 
-export function handle(payload) {
-  return handleNormalizedEvent(normalizeGenericEvent(payload));
+export function handle(payload, options = {}) {
+  try {
+    return handleNormalizedEvent(normalizeGenericEvent(payload), options);
+  } catch (error) {
+    return { version: 1, decision: "deny", reason: error.code ?? "generic-hook-error" };
+  }
 }
 
 export function hookExitCode(result) {
@@ -45,9 +49,8 @@ if (executedPath === import.meta.url) {
     process.stdout.write(`${JSON.stringify(result)}\n`);
     process.exitCode = hookExitCode(result);
   } catch (error) {
-    process.stdout.write(
-      `${JSON.stringify({ version: 1, decision: "stop", reason: error.message })}\n`,
-    );
-    process.exitCode = 1;
+    const result = { version: 1, decision: "deny", reason: error.code ?? "generic-hook-error" };
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    process.exitCode = hookExitCode(result);
   }
 }
