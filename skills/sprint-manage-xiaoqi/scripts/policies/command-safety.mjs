@@ -17,7 +17,12 @@ export function assertSafeAction(action = {}, cwd = process.cwd()) {
     throw new Error("destructive-command-denied: command requires explicit confirmation");
   }
 
-  if (action.paths && action.writeScopes) {
+  if (action.paths !== undefined) {
+    if (!Array.isArray(action.writeScopes) || action.writeScopes.length === 0) {
+      const error = new Error("write-scope-required: actions with paths require explicit write scopes");
+      error.code = "write-scope-required";
+      throw error;
+    }
     assertPathsAllowed(action.paths, action.writeScopes, cwd);
   }
 }

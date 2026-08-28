@@ -1,109 +1,32 @@
-// Owner: CJ <chenjia@fehorizon.com>
-
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
-import {
-  handleNormalizedEvent,
-  normalizedExitCode,
-} from "../scripts/core/hook-runtime.mjs";
-import { parseProgressYaml } from "../scripts/validate-progress.mjs";
+import { handleNormalizedEvent, normalizedExitCode } from "../scripts/core/hook-runtime.mjs";
+import { handle } from "../scripts/generic-hook.mjs";
 
-const fixture = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "fixtures/valid-single.yaml",
-);
+const context = { planningRoot: "e:/plans", deliveryId: "delivery-a" };
 
-test("generic runtime denies destructive commands with a normalized decision", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-generic-safety-"));
-  const ledger = path.join(directory, "story-1001.yaml");
-  await writeFile(ledger, await readFile(fixture, "utf8"));
+function plane(decision = "allow") {
+  return { handleEvent: () => ({ decision }) };
+}
 
-  const result = handleNormalizedEvent({
-    version: 1,
-    source: "generic-json",
-    event: "before-action",
-    actor: "alice",
-    cwd: directory,
-    ledger,
-    action: {
-      name: "shell",
-      command: "git reset --hard HEAD",
-    },
-  });
+test("generic runtime denies unknown events and missing control-plane context", () => {
+  assert.equal(handle({ event: "future-event" }).decision, "deny");
+  assert.equal(handle({ event: "before-action", planningRoot: "e:/plans" }).reason, "delivery-id-required");
+  assert.equal(handleNormalizedEvent({ version: 1, source: "generic-json", event: "before-action", ...context, action: { name: "shell", command: "npm test" } }).reason, "control-plane-handler-missing");
+});
 
-  assert.equal(result.decision, "deny");
+test("generic runtime preserves normalized allow and deny decisions", () => {
+  const allowed = handleNormalizedEvent({ version: 1, source: "generic-json", event: "session-start", ...context }, { controlPlane: plane() });
+  assert.equal(allowed.decision, "allow");
+  assert.equal(allowed.version, 1);
+  const denied = handleNormalizedEvent({ version: 1, source: "generic-json", event: "before-action", ...context, action: { name: "shell", command: "git reset --hard HEAD" } }, { controlPlane: plane() });
+  assert.equal(denied.decision, "deny");
+  assert.equal(normalizedExitCode(denied), 2);
+});
+
+test("generic executable failures use version 1 deny output and stable exit code", () => {
+  const result = handle({ event: "before-action", ...context, action: { name: "shell", command: "npm test" } });
+  assert.deepEqual(result, { version: 1, decision: "deny", reason: "control-plane-handler-missing" });
   assert.equal(normalizedExitCode(result), 2);
-  assert.match(result.reason, /destructive-command-denied/);
-});
-
-test("generic runtime records session events through the shared lifecycle", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-generic-hook-"));
-  const ledger = path.join(directory, "story-1001.yaml");
-  await writeFile(ledger, await readFile(fixture, "utf8"));
-
-  const result = handleNormalizedEvent({
-    version: 1,
-    source: "generic-json",
-    event: "session-start",
-    actor: "alice",
-    cwd: directory,
-    ledger,
-  });
-
-  assert.equal(result.decision, "allow");
-  const document = parseProgressYaml(await readFile(ledger, "utf8"));
-  assert.equal(document.事件日志.at(-1).hook, "session-start");
-  assert.equal(document.事件日志.at(-1).source, "generic-json");
-});
-
-test("generic runtime bypasses events without an explicit ledger", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-generic-bypass-"));
-  const ledger = path.join(directory, "story-1001.yaml");
-  await writeFile(ledger, await readFile(fixture, "utf8"));
-
-  const result = handleNormalizedEvent({
-    version: 1,
-    source: "generic-json",
-    event: "before-action",
-    actor: "alice",
-    cwd: directory,
-    action: { name: "shell", command: "git reset --hard HEAD" },
-  });
-
-  assert.equal(result.decision, "allow");
-});
-
-test("generic runtime keeps retryable failures active until the third attempt", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-generic-failure-"));
-  const ledger = path.join(directory, "story-1001.yaml");
-  await writeFile(ledger, await readFile(fixture, "utf8"));
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const result = handleNormalizedEvent({
-      version: 1,
-      source: "generic-json",
-      event: "after-action",
-      actor: "alice",
-      cwd: directory,
-      ledger,
-      action: { name: "test", summary: "test failed" },
-      result: { ok: false, exitCode: 1, error: "assertion failed" },
-    });
-
-    assert.equal(result.decision, "allow");
-    const document = parseProgressYaml(await readFile(ledger, "utf8"));
-    assert.equal(
-      document.流程状态,
-      attempt < 3 ? "active" : "blocked",
-    );
-    assert.equal(document.事件日志.at(-1).attempt, attempt);
-  }
-
-  const document = parseProgressYaml(await readFile(ledger, "utf8"));
-  assert.equal(document.阻塞项.at(-1).code, "lifecycle-failure");
 });

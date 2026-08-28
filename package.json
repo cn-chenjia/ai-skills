@@ -1,0 +1,13 @@
+{
+  "name": "ai-skills",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.mjs\"",
+    "test:cli": "node --test tests/cli.test.mjs",
+    "test:skill": "node --test \"skills/sprint-manage-xiaoqi/tests/**/*.test.mjs\""
+  }
+}

@@ -10,15 +10,7 @@ import { runDoctor as executeDoctor } from "../scripts/doctor.mjs";
 
 const homeDirs = new Map();
 const runtimeFiles = [
-  "initialize-requirement.mjs",
-  "prepare-workspace.mjs",
   "generic-hook.mjs",
-  "lifecycle.mjs",
-  "ledger-lock.mjs",
-  "advance-progress.mjs",
-  "close-requirement.mjs",
-  "cancel-requirement.mjs",
-  "validate-progress.mjs",
   "guarded-run.mjs",
   "codex-hook.mjs",
   "trae-hook.mjs",

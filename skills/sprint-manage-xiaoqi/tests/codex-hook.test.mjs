@@ -1,84 +1,28 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
-import { parseProgressYaml } from "../scripts/validate-progress.mjs";
-import { normalizeCodexEvent } from "../scripts/adapters/codex.mjs";
-import { handle, hookExitCode } from "../scripts/codex-hook.mjs";
+import { handleCodexPayload, normalizeCodexEvent, toCodexResponse, codexExitCode } from "../scripts/adapters/codex.mjs";
 
-const skillRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const hookScript = path.join(skillRoot, "scripts/codex-hook.mjs");
-const fixture = path.join(skillRoot, "tests/fixtures/valid-single.yaml");
+const context = { planningRoot: "e:/plans", deliveryId: "delivery-a" };
+const plane = { handleEvent: () => ({ decision: "allow" }) };
 
-test("Codex PreToolUse hook bypasses destructive commands without a selected ledger", () => {
-  const result = handle({
-    hook_event_name: "PreToolUse",
-    tool_name: "shell_command",
-    tool_input: { command: "git reset --hard HEAD" },
-  });
-
-  assert.equal(hookExitCode(result), 0);
-  assert.equal(result.continue, true);
+test("Codex adapter normalizes lifecycle events without ledger paths", () => {
+  const event = normalizeCodexEvent({ hook_event_name: "PreToolUse", ...context, tool_name: "shell", tool_input: { command: "npm test" } });
+  assert.equal(event.event, "before-action");
+  assert.equal(event.deliveryId, "delivery-a");
+  assert.equal("ledger" in event, false);
 });
 
-test("Codex PreToolUse hook allows ordinary commands", () => {
-  const result = handle({
-    hook_event_name: "PreToolUse",
-    tool_name: "shell_command",
-    tool_input: { command: "node --version" },
-  });
-
-  assert.equal(result.continue, true);
+test("Codex adapter preserves allow, deny and stop response states", () => {
+  assert.deepEqual(toCodexResponse({ decision: "allow" }), { continue: true });
+  assert.equal(toCodexResponse({ decision: "deny", reason: "blocked" }).hookSpecificOutput.permissionDecision, "deny");
+  assert.equal(toCodexResponse({ decision: "stop", reason: "stopped" }).continue, false);
 });
 
-test("Codex adapter preserves non-retryable failure metadata", () => {
-  const event = normalizeCodexEvent({
-    hook_event_name: "PostToolUse",
-    tool_name: "merge",
-    tool_result: {
-      exit_code: 1,
-      error: "approval required",
-      retryable: false,
-    },
-  });
-
-  assert.equal(event.result.retryable, false);
-});
-
-test("Codex SessionStart hook records the session event", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-codex-hook-"));
-  const ledger = path.join(directory, "story-1001.yaml");
-  await writeFile(ledger, await readFile(fixture, "utf8"));
-
-  const result = handle({
-    hook_event_name: "SessionStart",
-    cwd: directory,
-    ledger,
-    actor: "alice",
-  });
-
-  assert.equal(result.continue, true);
-  const document = parseProgressYaml(await readFile(ledger, "utf8"));
-  assert.equal(document.事件日志.at(-1).hook, "session-start");
-});
-
-test("Codex hook discovers the only requirement ledger from the workspace", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-codex-discover-"));
-  const requirements = path.join(directory, "sprint-manage", "requirements");
-  await import("node:fs/promises").then(({ mkdir }) => mkdir(requirements, { recursive: true }));
-  const ledger = path.join(requirements, "story-1001.yaml");
-  await writeFile(ledger, await readFile(fixture, "utf8"));
-
-  handle({
-    hook_event_name: "SessionStart",
-    cwd: directory,
-    actor: "alice",
-    ledger,
-  }, directory);
-
-  const document = parseProgressYaml(await readFile(ledger, "utf8"));
-  assert.equal(document.事件日志.at(-1).hook, "session-start");
+test("Codex entry denies unknown and missing-handler events with stable exit code", () => {
+  const unknown = handleCodexPayload({ hook_event_name: "Future", ...context }, { controlPlane: plane });
+  assert.equal(unknown.continue, false);
+  const missing = handleCodexPayload({ hook_event_name: "PreToolUse", ...context, tool_input: { command: "npm test" } });
+  assert.equal(missing.continue, false);
+  assert.equal(codexExitCode(missing), 2);
 });

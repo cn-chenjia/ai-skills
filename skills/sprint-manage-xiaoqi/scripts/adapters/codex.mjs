@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 // Author: CJ <chenjia@fehorizon.com>
 
-import { readdirSync } from "node:fs";
-import path from "node:path";
-
 import { resolveOpenSpecContext } from "../openspec-context.mjs";
+import { createControlPlaneEvent, resolveDeliverySelection } from "../../../../adapters/control-plane.mjs";
 import { handleNormalizedEvent, normalizedExitCode } from "../core/hook-runtime.mjs";
 
 const EVENT_MAP = new Map([
@@ -48,42 +46,32 @@ function resultFrom(payload) {
   };
 }
 
-function discoverLedger(payload) {
-  const root = payload.cwd ?? process.cwd();
-  let planningRoot = root;
-  try {
-    planningRoot = resolveOpenSpecContext(root).rootPath;
-  } catch {
-    return undefined;
-  }
-  const requirementsDir = path.join(planningRoot, "sprint-manage", "requirements");
-  let files = [];
-  try {
-    files = readdirSync(requirementsDir)
-      .filter((name) => /\.ya?ml$/i.test(name))
-      .map((name) => path.join(requirementsDir, name));
-  } catch {
-    return undefined;
-  }
-  return files.length === 1 ? files[0] : undefined;
-}
-
 export function normalizeCodexEvent(payload = {}) {
   const event = EVENT_MAP.get(payload.hook_event_name ?? payload.event) ?? "unknown";
-  return {
-    version: 1,
+  const cwd = payload.cwd ?? process.cwd();
+  let planningRoot = payload.planningRoot;
+  if (!planningRoot) {
+    try {
+      planningRoot = resolveOpenSpecContext(cwd).rootPath;
+    } catch {
+      planningRoot = undefined;
+    }
+  }
+  const deliveryId = resolveDeliverySelection({
+    deliveries: payload.deliveries ?? payload.input?.deliveries ?? [],
+    deliveryId: payload.deliveryId ?? payload.delivery_id ?? payload.input?.deliveryId ?? process.env.XIAOQI_DELIVERY_ID,
+  });
+  const eventPayload = createControlPlaneEvent({
     source: "codex",
     event,
     actor: payload.actor ?? process.env.XIAOQI_ACTOR ?? "codex",
-    cwd: payload.cwd ?? process.cwd(),
-    ledger:
-      payload.ledger ??
-      payload.input?.ledger ??
-      process.env.XIAOQI_LEDGER ??
-      discoverLedger(payload),
+    cwd,
+    planningRoot,
+    deliveryId,
     action: actionFrom(payload),
     result: event === "after-action" ? resultFrom(payload) : undefined,
-  };
+  });
+  return eventPayload;
 }
 
 function deny(reason) {
@@ -106,8 +94,12 @@ export function toCodexResponse(result) {
   return { continue: true };
 }
 
-export function handleCodexPayload(payload) {
-  return toCodexResponse(handleNormalizedEvent(normalizeCodexEvent(payload)));
+export function handleCodexPayload(payload, options = {}) {
+  try {
+    return toCodexResponse(handleNormalizedEvent(normalizeCodexEvent(payload), options));
+  } catch (error) {
+    return toCodexResponse({ decision: "deny", reason: error.code ?? "codex-hook-error" });
+  }
 }
 
 export function codexExitCode(result) {
