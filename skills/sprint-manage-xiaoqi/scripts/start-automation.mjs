@@ -23,8 +23,14 @@ export async function startAutomation({
   const classification = classifyRequest(request);
 
   if (!confirmed && classification.status === "needs-explore") {
+    const summary = classification.summary;
     return {
       status: "needs-explore",
+      outcome: "needs-confirmation",
+      summary,
+      evidence: null,
+      blockers: classification.reasons,
+      recommended_next: "explore",
       classification,
     };
   }

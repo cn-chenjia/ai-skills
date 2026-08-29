@@ -7,7 +7,6 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  renameSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -24,12 +23,7 @@ import {
   hasApprovedProposal,
   parseProgressYaml,
 } from "./validate-progress.mjs";
-
-const IGNORE_LINES = [
-  "sprint-manage/local/",
-  "sprint-manage/requirements/*.yaml.lock",
-  ".worktrees/",
-];
+import { getRequirementsDir } from "./ledger-paths.mjs";
 
 function runGit(cwd, args, { allowFailure = false } = {}) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });
@@ -144,13 +138,13 @@ function detectBaseBranch(projectRoot, configured) {
   );
   if (candidates.length === 1) return candidates[0];
   throw new Error(
-    "无法唯一确定基线分支，请在需求账本中填写协作.基线分支，或在项目根目录创建 .xiaoqi/config.yaml 指定 baseBranch",
+    "无法唯一确定基线分支，请在仓库条目中填写 baseBranch，或在项目根目录创建 .xiaoqi/config.yaml 指定 baseBranch",
   );
 }
 
-function buildBranchName(document, projectRoot) {
-  // 优先级：账本显式配置 > 项目 .xiaoqi/config.yaml 的 branchTemplate > 默认 feature/<编号>
-  if (document.协作?.分支) return document.协作.分支;
+function buildBranchName(document, projectRoot, repository) {
+  // 优先级：仓库显式配置 > 项目配置 > 默认值
+  if (repository?.branch) return repository.branch;
 
   const projectConfig = readProjectConfig(projectRoot);
   const template = projectConfig.branchTemplate;
@@ -163,39 +157,13 @@ function buildBranchName(document, projectRoot) {
       .replace(/\{\{change_id\}\}/g, document.change_id ?? document.编号);
   }
 
-  return `feature/${document.编号}`;
-}
-
-function ensureIgnoreRules(projectRoot) {
-  const ignorePath = path.join(projectRoot, ".gitignore");
-  const source = existsSync(ignorePath) ? readFileSync(ignorePath, "utf8") : "";
-  const existing = new Set(source.split(/\r?\n/));
-  const missing = IGNORE_LINES.filter((line) => !existing.has(line));
-  if (missing.length === 0) return;
-
-  const prefix = source.length > 0 && !source.endsWith("\n") ? "\n" : "";
-  writeFileSync(ignorePath, `${source}${prefix}${missing.join("\n")}\n`, "utf8");
-}
-
-function writeSession(worktree, owner, requirementId) {
-  const localDir = path.join(worktree, "sprint-manage", "local");
-  mkdirSync(localDir, { recursive: true });
-  writeFileSync(
-    path.join(localDir, "session.yaml"),
-    `当前用户: ${JSON.stringify(owner)}\n当前需求: ${JSON.stringify(requirementId)}\n`,
-    "utf8",
-  );
-}
-
-function workspacePath(projectRoot, configured) {
-  if (!configured || configured === ".") return projectRoot;
-  return path.resolve(projectRoot, configured);
+  return `feature/${document.编号}${repository?.id && repository.id !== "main" ? `-${repository.id}` : ""}`;
 }
 
 function currentWorktreeIsOccupied(ledgerPath, projectRoot, currentBranch) {
   for (const tree of listWorktrees(projectRoot)) {
     if (!tree.path) continue;
-    const requirementsDir = path.join(tree.path, "sprint-manage", "requirements");
+    const requirementsDir = getRequirementsDir(projectRoot);
     if (!existsSync(requirementsDir)) continue;
     for (const name of readdirSync(requirementsDir)) {
       if (!/\.ya?ml$/i.test(name)) continue;
@@ -219,28 +187,18 @@ function currentWorktreeIsOccupied(ledgerPath, projectRoot, currentBranch) {
   return false;
 }
 
-function moveLedgerToWorktree(ledgerPath, worktree) {
-  const target = path.join(
-    worktree,
-    "sprint-manage",
-    "requirements",
-    path.basename(ledgerPath),
-  );
-  if (path.resolve(ledgerPath) === path.resolve(target)) return ledgerPath;
-  if (existsSync(target)) return target;
-  mkdirSync(path.dirname(target), { recursive: true });
-  renameSync(ledgerPath, target);
-  return target;
-}
-
-function updateLedger(ledgerPath, owner, changes) {
+function updateLedger(ledgerPath, owner, collaboration, repositories) {
   const lock = acquireLedgerLock(ledgerPath, owner);
   const lockPath = `${ledgerPath}.lock`;
   const original = readFileSync(ledgerPath, "utf8");
   try {
     const document = parseProgressYaml(original);
     const next = structuredClone(document);
-    next.协作 = { ...next.协作, ...changes };
+    next.协作 = {
+      模式: collaboration.模式,
+      负责人: collaboration.负责人,
+    };
+    if (repositories) next.仓库 = repositories;
     writeFileSync(ledgerPath, serializeProgressYaml(next), "utf8");
     commitLedgerLock(ledgerPath, lock.token);
   } catch (error) {
@@ -255,22 +213,15 @@ export function hasBlockingChanges(projectRoot) {
   return status
     .split(/\r?\n/)
     .filter(Boolean)
-    .some((line) => {
-      // untracked 的技能自身文件（账本、session 等）不阻塞切换分支
-      if (line.startsWith("?? ") && /sprint-manage\//.test(line.slice(3))) {
-        return false;
-      }
-      return true;
-    });
+    .some((line) => !line.startsWith("?? ") || !line.includes(".worktrees/"));
 }
 
-function prepareWorkspace(ledgerPath, projectRoot, owner) {
+function prepareWorkspace(ledgerPath, projectRoot, owner, repository, document) {
   const root = path.resolve(projectRoot);
   const ledger = path.resolve(ledgerPath);
   const gitRoot = path.resolve(gitOutput(root, ["rev-parse", "--show-toplevel"]));
   if (gitRoot !== root) throw new Error(`项目根目录不匹配: ${root}`);
 
-  const document = parseProgressYaml(readFileSync(ledger, "utf8"));
   if (document.交付状态 !== "not-started") {
     throw new Error(`只有 not-started 需求可以准备工作区: ${document.交付状态}`);
   }
@@ -281,8 +232,8 @@ function prepareWorkspace(ledgerPath, projectRoot, owner) {
     throw new Error("方案尚未确认，不能准备需求分支和工作区");
   }
 
-  const baseBranch = detectBaseBranch(root, document.协作?.基线分支);
-  const branch = buildBranchName(document, root);
+  const baseBranch = detectBaseBranch(root, repository?.baseBranch);
+  const branch = buildBranchName(document, root, repository);
   validateBranchName(root, branch);
   const currentBranch = gitOutput(root, ["branch", "--show-current"]);
 
@@ -290,11 +241,11 @@ function prepareWorkspace(ledgerPath, projectRoot, owner) {
   if (
     currentBranch !== branch &&
     currentBranch !== baseBranch &&
-    !document.协作?.分支 // 账本未显式指定分支时，用户可能在不知情下自建分支
+    !repository?.branch
   ) {
     console.warn(
       `[提示] 当前在分支 ${currentBranch}，账本规划使用 ${branch}（从 .xiaoqi/config.yaml 或默认规则生成）。` +
-        `若要使用当前分支，请在账本 协作.分支 中显式填写 ${currentBranch}。`,
+        `若要使用当前分支，请在账本 仓库[].branch 中显式填写 ${currentBranch}。`,
     );
   }
 
@@ -316,7 +267,6 @@ function prepareWorkspace(ledgerPath, projectRoot, owner) {
     } else {
       if (existsSync(worktree)) throw new Error(`目标工作区已存在: ${worktree}`);
       if (branchExists(root, branch)) throw new Error(`需求分支已存在但未绑定: ${branch}`);
-      ensureIgnoreRules(root);
       mkdirSync(path.dirname(worktree), { recursive: true });
       runGit(root, ["worktree", "add", "-b", branch, worktree, baseBranch]);
       mode = "created";
@@ -324,7 +274,7 @@ function prepareWorkspace(ledgerPath, projectRoot, owner) {
   } else if (currentBranch !== branch) {
     if (hasBlockingChanges(root)) {
       throw new Error(
-        "当前工作区存在未提交修改，不能安全切换到需求分支；请先提交或暂存修改，或在账本协作.分支中预填当前分支以直接登记当前工作区",
+        "当前工作区存在未提交修改，不能安全切换到需求分支；请先提交或暂存修改，或在账本仓库[].branch中预填当前分支以直接登记当前工作区",
       );
     }
     if (branchExists(root, branch)) {
@@ -334,15 +284,7 @@ function prepareWorkspace(ledgerPath, projectRoot, owner) {
     }
   }
 
-  ensureIgnoreRules(root);
-  const targetLedger = moveLedgerToWorktree(ledger, worktree);
-  updateLedger(targetLedger, owner, {
-    基线分支: baseBranch,
-    分支: branch,
-    工作区: ".",
-  });
-  writeSession(worktree, owner, document.编号);
-
+  const targetLedger = ledger;
   return {
     outcome: "completed",
     mode,
@@ -351,6 +293,49 @@ function prepareWorkspace(ledgerPath, projectRoot, owner) {
     branch,
     worktree,
     recommendedNext: "apply",
+    id: repository?.id,
+  };
+}
+
+export function prepareWorkspaces(ledgerPath, projectRoot, owner) {
+  const ledger = path.resolve(ledgerPath);
+  const root = path.resolve(projectRoot);
+  const document = parseProgressYaml(readFileSync(ledger, "utf8"));
+  if (document.交付状态 !== "not-started") {
+    throw new Error(`只有 not-started 需求可以准备工作区: ${document.交付状态}`);
+  }
+  if (document.协作?.负责人 !== owner) {
+    throw new Error(`只有需求负责人可以准备工作区: ${document.协作?.负责人}`);
+  }
+  if (!hasApprovedProposal(document)) {
+    throw new Error("方案尚未确认，不能准备需求分支和工作区");
+  }
+  const repositories = document.仓库?.length
+    ? document.仓库
+    : [{ id: "main", root: "." }];
+  const results = repositories.map((repository) =>
+    prepareWorkspace(ledger, path.resolve(root, repository.root), owner, repository, document),
+  );
+  const updatedRepositories = repositories.map((repository, index) => ({
+    ...repository,
+    branch: results[index].branch,
+    worktree: path.relative(root, results[index].worktree) || ".",
+    baseBranch: results[index].baseBranch,
+  }));
+  const first = results[0];
+  updateLedger(ledger, owner, {
+    模式: document.协作.模式,
+    负责人: owner,
+  }, updatedRepositories);
+  return {
+    outcome: "completed",
+    mode: first.mode,
+    ledger,
+    baseBranch: first.baseBranch,
+    branch: first.branch,
+    worktree: first.worktree,
+    recommendedNext: "apply",
+    repositories: results,
   };
 }
 
@@ -362,7 +347,7 @@ function runCli(args) {
     return 2;
   }
   try {
-    console.log(JSON.stringify(prepareWorkspace(...args)));
+    console.log(JSON.stringify(prepareWorkspaces(...args)));
     return 0;
   } catch (error) {
     console.error(error.message);

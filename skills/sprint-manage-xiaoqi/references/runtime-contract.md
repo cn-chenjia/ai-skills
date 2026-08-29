@@ -4,16 +4,19 @@
 
 ## 运行时边界
 
-小七运行时只提供需求账本、状态推进和证据校验所需的确定性入口：
+小七运行时只提供全局需求账本、状态推进和证据校验所需的确定性入口：
 
-- `initialize-requirement.mjs`：proposal 经用户确认后创建账本并记录确认人。
-- `prepare-workspace.mjs`：准备需求分支和专属工作区。
+- `ledger-paths.mjs`：按项目根目录解析 `~/.xiaoqi/projects/<project-id>/requirements/` 全局账本路径。
+- `initialize-requirement.mjs`：proposal 经用户确认后创建需求账本并记录确认人。
+- `prepare-workspace.mjs`：为当前需求登记一个或多个仓库的分支和工作区。
 - `advance-progress.mjs`：按证据推进交付状态。
-- `ledger-lock.mjs`：提供账本并发写入锁。
+- `ledger-lock.mjs`：提供全局账本并发写入锁。
 - `record-evidence.mjs`：记录外部执行产生的证据。
-- `validate-progress.mjs`：校验账本结构和状态迁移。
+- `validate-progress.mjs`：校验单个账本、全局需求目录和跨需求事实。
 
-宿主工具负责执行测试、评审、OpenSpec 和分支收尾；小七只接收结果证据并据此推进账本。运行时不负责安装、宿主诊断或自动执行。
+单人可以并行推进多个需求；单个需求可以登记多个仓库。运行时以需求编号和仓库条目定位事实，不创建、不读取 `session.yaml`。
+
+宿主工具负责执行编码、测试、评审、OpenSpec 和分支收尾；小七只接收结果证据并据此推进全局账本。运行时不负责安装、宿主诊断、需求初始化、工作区准备或完整研发流程自动执行。自动化推进器若被调用，只能处理已初始化且已登记工作区的账本证据门禁，不能替代主技能协调上述动作。
 
 ## 结果返回
 

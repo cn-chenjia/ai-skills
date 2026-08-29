@@ -11,11 +11,13 @@ const skillDir = path.resolve(testDir, "..");
 test("keeps the main skill in control of the Xiaoqi workflow", async () => {
   const skill = await readFile(path.join(skillDir, "SKILL.md"), "utf8");
 
-  assert.match(skill, /会话锁/);
+  assert.match(skill, /流程接管/);
   assert.match(skill, /后续用户消息默认都是当前小七流程的续接/);
   assert.match(skill, /确认、可以、执行、继续/);
   assert.match(skill, /退出小七/);
-  assert.match(skill, /一个小七会话.*一个当前需求/s);
+  assert.match(skill, /同一用户可以并行推进多个需求/);
+  assert.match(skill, /单个需求可以登记并操作多个仓库/);
+  assert.match(skill, /单个需求可以登记并操作多个仓库/);
   assert.match(skill, /确认并立即实施当前需求/);
   assert.match(skill, /确认并暂停当前需求/);
   assert.match(skill, /确认并结束本次会话/);

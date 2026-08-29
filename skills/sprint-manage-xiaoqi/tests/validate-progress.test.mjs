@@ -38,22 +38,38 @@ test("accepts an isolated single-person requirement ledger", async () => {
   assert.deepEqual(validateProgress(await fixture("valid-single.yaml")), []);
 });
 
-test("accepts a shared change with independent collaboration lanes", async () => {
-  assert.deepEqual(validateProgress(await fixture("valid-shared.yaml")), []);
+test("accepts a multi-repository independent requirement ledger", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.协作.模式 = "independent";
+  document.仓库 = [
+    { id: "frontend", root: "apps/web", branch: "feature/story-1001-web", worktree: ".worktrees/story-1001-web" },
+    { id: "backend", root: "services/api", branch: "feature/story-1001-api", worktree: ".worktrees/story-1001-api" },
+  ];
+  assert.deepEqual(validateProgress(document), []);
 });
 
-test("rejects a V3 shared progress file until it is split", async () => {
+test("rejects removed collaboration fields and invalid repository entries", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.协作.参与人 = [];
+  document.并行单元 = [];
+  document.协作.集成分支 = "main";
+  document.仓库 = [
+    { id: "repo", root: ".", branch: "same", worktree: ".same" },
+    { id: "repo", root: ".", branch: "same", worktree: ".same" },
+  ];
+  const codes = new Set(validateProgress(document).map((issue) => issue.code));
+  assert(codes.has("unsupported-collaboration-field"));
+  assert(codes.has("duplicate-repository-id"));
+  assert(codes.has("duplicate-repository-branch"));
+  assert(codes.has("duplicate-repository-worktree"));
+});
+
+test("rejects a legacy V3 shared progress file until it is split", async () => {
   const codes = await issueCodes("invalid-schema-v3.yaml");
   assert(codes.has("unsupported-schema-version"));
   assert(codes.has("legacy-shared-ledger"));
 });
 
-test("rejects shared changes with missing integration data, dependency cycles, and scope overlap", async () => {
-  const codes = await issueCodes("invalid-shared.yaml");
-  assert(codes.has("missing-integration-branch"));
-  assert(codes.has("lane-dependency-cycle"));
-  assert(codes.has("lane-write-scope-conflict"));
-});
 
 test("rejects closed flows whose delivery state disagrees with finish evidence", async () => {
   const document = await fixture("valid-single.yaml");
@@ -99,8 +115,8 @@ test("directory validation detects duplicate branches, worktrees, and active con
     .replaceAll("story-1001", "story-1002")
     .replace('负责人: "alice"', '负责人: "bob"')
     .replace('updated_by: "alice"', 'updated_by: "bob"')
-    .replace('分支: "feature/story-1002"', '分支: "feature/story-1001"')
-    .replace('工作区: ".worktrees/story-1002"', '工作区: ".worktrees/story-1001"')
+    .replace('branch: "feature/story-1002"', 'branch: "feature/story-1001"')
+    .replace('worktree: ".worktrees/story-1002"', 'worktree: ".worktrees/story-1001"')
     .replace("冲突键: []", '冲突键:\n  - "db:migration"');
   const firstWithConflict = first.replace(
     "冲突键: []",
@@ -336,6 +352,19 @@ test("keeps colons inside quoted sequence scalars", () => {
   });
 });
 
+test("treats a colon without following whitespace as part of an unquoted sequence scalar", () => {
+  assert.deepEqual(parseProgressYaml("items:\n  - api:orders\n"), {
+    items: ["api:orders"],
+  });
+});
+
+test("rejects duplicate keys in a sequence mapping even when the first value is nested", () => {
+  assert.throws(
+    () => parseProgressYaml("items:\n  - details:\n      name: first\n    details:\n      name: second\n"),
+    /键“details”重复/,
+  );
+});
+
 test("rejects duplicate keys inside a sequence item", () => {
   assert.throws(
     () => parseProgressYaml("并行单元:\n  - id: T01\n    id: T02\n"),
@@ -349,41 +378,16 @@ test("keeps ledger and collaboration details in their focused references", async
     path.join(skillDir, "references", "state-contract.md"),
     "utf8",
   );
-  const collaboration = await readFile(
-    path.join(skillDir, "references", "collaboration.md"),
-    "utf8",
-  );
-
   assert.match(
     skill,
     /新建、恢复、查看需求；账本或状态问题[\s\S]*references\/state-contract\.md/,
   );
-  assert.match(
-    skill,
-    /多需求、多人、分支、工作区或写入范围冲突[\s\S]*references\/collaboration\.md/,
-  );
-  assert.match(state, /requirements\/<id>\.yaml/);
+  assert.match(state, /~\/\.xiaoqi\/projects\/<project-id>\/requirements/);
   assert.match(state, /账本锁与版本/);
   assert.match(state, /ledger-lock\.mjs/);
-  assert.match(state, /local\/session\.yaml.*不提交/s);
-  assert.match(collaboration, /单写者/);
-  assert.match(collaboration, /独立.*branch.*worktree/s);
-  assert.match(collaboration, /write_scope/);
-  assert.match(collaboration, /depends_on/);
-  assert.match(collaboration, /冲突键/);
-  assert.doesNotMatch(state, /当前需求:/);
-});
-
-test("documents multi-requirement and large shared-change workflows", async () => {
-  const collaboration = await readFile(
-    path.join(skillDir, "references", "collaboration.md"),
-    "utf8",
-  );
-  assert.match(collaboration, /单人并行多个需求/);
-  assert.match(collaboration, /多人分别开发多个需求/);
-  assert.match(collaboration, /大型需求共享 Change/);
-  assert.match(collaboration, /集成分支/);
-  assert.match(collaboration, /write_scope/);
+  assert.match(state, /不创建、不读取 `session\.yaml`/);
+  assert.match(state, /单个需求可以登记多个仓库/);
+  assert.doesNotMatch(state, /shared-change|并行单元/);
 });
 
 test("public documentation explains collaboration conflict prevention", async (context) => {

@@ -19,16 +19,40 @@ function currentState(filePath) {
   return parseProgressYaml(readFileSync(filePath, "utf8"));
 }
 
-function failureResult(action, result) {
+function protocolResult({
+  status,
+  outcome,
+  summary,
+  evidence = null,
+  blockers = [],
+  recommended_next,
+  ...details
+}) {
   return {
-    status: "blocked",
-    summary:
-      result?.summary ??
-      result?.stderr ??
-      result?.error ??
-      `action ${action.name} failed`,
-    action: action.name,
+    status,
+    outcome,
+    summary,
+    evidence,
+    blockers,
+    recommended_next,
+    ...details,
   };
+}
+
+function failureResult(action, result) {
+  const summary =
+    result?.summary ??
+    result?.stderr ??
+    result?.error ??
+    `action ${action.name} failed`;
+  return protocolResult({
+    status: "blocked",
+    outcome: "blocked",
+    summary,
+    blockers: [summary],
+    recommended_next: "manual-intervention",
+    action: action.name,
+  });
 }
 
 function isSuccessfulEvidence(result) {
@@ -89,12 +113,40 @@ export async function runUntilReady({
     const deliveryStatus = findValue(document, "交付状态");
     const workflowStatus = findValue(document, "流程状态");
 
-    if (deliveryStatus === "ready") return { status: "ready", steps, repairs };
+    if (deliveryStatus === "ready") {
+      const lastStep = steps.at(-1);
+      return protocolResult({
+        status: "ready",
+        outcome: "completed",
+        summary: "自动化推进已到达 ready",
+        evidence: lastStep?.evidenceKind
+          ? { kind: lastStep.evidenceKind, result: "passed" }
+          : null,
+        recommended_next: "closing",
+        steps,
+        repairs,
+      });
+    }
     if (FINAL_DELIVERY_STATES.has(deliveryStatus)) {
-      return { status: deliveryStatus, steps, repairs };
+      return protocolResult({
+        status: deliveryStatus,
+        outcome: "completed",
+        summary: `自动化推进已到达 ${deliveryStatus}`,
+        recommended_next: "closing",
+        steps,
+        repairs,
+      });
     }
     if (workflowStatus === "blocked") {
-      return { status: "blocked", steps, repairs };
+      return protocolResult({
+        status: "blocked",
+        outcome: "blocked",
+        summary: "需求流程已阻塞",
+        blockers: ["需求流程已阻塞"],
+        recommended_next: "manual-intervention",
+        steps,
+        repairs,
+      });
     }
 
     const action = await nextActionResolver(document);
@@ -120,13 +172,17 @@ export async function runUntilReady({
       }
 
       if (result?.outcome === "needs_confirmation") {
-        return {
-          status: "needs-confirmation",
-          summary: result.summary ?? "action requires confirmation",
-          action: action.name,
-          steps,
-          repairs,
-        };
+        const summary = result.summary ?? "action requires confirmation";
+      return protocolResult({
+        status: "needs-confirmation",
+        outcome: "needs-confirmation",
+        summary,
+        blockers: [summary],
+        recommended_next: "human-confirmation",
+        action: action.name,
+        steps,
+        repairs,
+      });
       }
 
       if (!isFailedResult(result)) break;
@@ -160,14 +216,17 @@ export async function runUntilReady({
 
     const evidence = result?.evidence ?? result;
     if (!isSuccessfulEvidence(result)) {
-      const blocked = {
+      const summary = `action ${action.name} returned incomplete evidence`;
+      return protocolResult({
         status: "blocked",
-        summary: `action ${action.name} returned incomplete evidence`,
+        outcome: "blocked",
+        summary,
+        blockers: [summary],
+        recommended_next: "manual-intervention",
         action: action.name,
         steps,
         repairs,
-      };
-      return blocked;
+      });
     }
 
     advanceProgress(ledgerPath, action.targetStatus, evidence, owner);
@@ -178,10 +237,14 @@ export async function runUntilReady({
     });
   }
 
-  return {
+  const summary = `automatic execution exceeded ${maxSteps} steps`;
+  return protocolResult({
     status: "blocked",
-    summary: `automatic execution exceeded ${maxSteps} steps`,
+    outcome: "blocked",
+    summary,
+    blockers: [summary],
+    recommended_next: "manual-intervention",
     steps,
     repairs,
-  };
+  });
 }

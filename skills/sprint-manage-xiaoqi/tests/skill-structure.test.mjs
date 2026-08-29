@@ -11,7 +11,6 @@ const readSkillFile = (relativePath) =>
 const referenceNames = [
   "state-contract.md",
   "step-details.md",
-  "collaboration.md",
   "closing.md",
   "runtime-contract.md",
 ];
@@ -45,45 +44,17 @@ test("removes Hook integration artifacts", async () => {
   }
 });
 
-test("keeps detailed collaboration rules in one focused reference", async () => {
-  const collaboration = await readSkillFile("references/collaboration.md");
+test("documents the global ledger and multi-repository workflow", async () => {
   const state = await readSkillFile("references/state-contract.md");
   const steps = await readSkillFile("references/step-details.md");
 
-  assert.match(collaboration, /不拥有会话或流程控制权/);
-  assert.match(collaboration, /返回 `SKILL\.md`/);
-  assert.match(collaboration, /单写者/);
-  assert.match(collaboration, /独立.*branch.*worktree/s);
-  assert.match(collaboration, /write_scope/);
-  assert.match(collaboration, /depends_on/);
-  assert.match(collaboration, /冲突键/);
-
-  assert.doesNotMatch(state, /^## 协作模式$/m);
-  assert.doesNotMatch(state, /^## 并发冲突$/m);
-  assert.doesNotMatch(steps, /^## 单人并行多个需求$/m);
-  assert.doesNotMatch(steps, /^## 多人分别开发多个需求$/m);
-  assert.doesNotMatch(steps, /^## 大型需求多人分工$/m);
-
-  const firstParallelScenario = steps.indexOf(
-    "存在多个可独立执行且写入范围不冲突的任务。",
-  );
-  const collaborationRoute = steps.indexOf(
-    "涉及多需求、多人、分支、工作区或写入范围冲突时",
-  );
-  assert.ok(firstParallelScenario >= 0);
-  assert.ok(
-    collaborationRoute > firstParallelScenario &&
-      collaborationRoute < firstParallelScenario + 200,
-  );
-
-  assert.match(
-    state,
-    /`shared-change`.*集成分支.*至少两个并行单元/s,
-  );
-  assert.match(
-    state,
-    /分支、工作区、依赖需求、冲突键、影响范围.*write_scope/s,
-  );
+  assert.match(state, /~\/\.xiaoqi\/projects\/<project-id>\/requirements/);
+  assert.match(state, /不创建、不读取\s+`session\.yaml`/);
+  assert.match(state, /单个需求可以登记多个仓库/);
+  assert.match(steps, /同一用户可以并行推进多个需求/);
+  assert.match(steps, /单个需求可以登记多个仓库/);
+  assert.doesNotMatch(state, /shared-change|并行单元/);
+  assert.doesNotMatch(steps, /协作评估|多人协作|大型需求多人分工/);
 });
 
 test("keeps post-ready closing rules in one focused reference", async () => {
@@ -119,10 +90,6 @@ test("routes every focused reference from the main skill", async () => {
       "references/step-details.md",
     ],
     [
-      "复杂且明确需要多人协作的需求，或多需求、多人、分支、工作区或写入范围冲突",
-      "references/collaboration.md",
-    ],
-    [
       "已到 `ready`；PR、合并、保留、归档、关闭需求或关闭整个迭代",
       "references/closing.md",
     ],
@@ -137,7 +104,7 @@ test("routes every focused reference from the main skill", async () => {
     /^\| (.*?) \| \[[^\]]+\]\(([^)]+)\) \|$/gm,
   )].map((match) => [match[1], match[2]]);
   assert.deepEqual(routes, expectedRoutes);
-  assert.equal(routes.length, 5);
+  assert.equal(routes.length, 4);
 });
 
 test("requires every reference to return control to the main skill", async () => {
@@ -226,10 +193,10 @@ test("keeps session lock ownership separate from automatic stop points", async (
 test("returns simple and complex paths to the main skill at ready", async () => {
   const steps = await readSkillFile("references/step-details.md");
   const simplePath = steps.match(
-    /## 简单路径([\s\S]*?)(?=\n## 复杂路径)/,
+    /## 简单路径([\s\S]*?)(?=\n## 多需求与多仓库路径)/,
   )?.[1];
   const complexPath = steps.match(
-    /## 复杂路径([\s\S]*?)(?=\n## 开发中变化)/,
+    /## 多需求与多仓库路径([\s\S]*?)(?=\n## 开发中变化)/,
   )?.[1];
 
   assert.ok(simplePath);

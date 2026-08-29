@@ -7,7 +7,12 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { parseProgressYaml } from "../scripts/validate-progress.mjs";
+import {
+  parseProgressYaml,
+  validateProgressFile,
+} from "../scripts/validate-progress.mjs";
+import { prepareWorkspaces } from "../scripts/prepare-workspace.mjs";
+import { getRequirementPath } from "../scripts/ledger-paths.mjs";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const skillDir = path.resolve(testDir, "..");
@@ -29,10 +34,22 @@ async function createProject() {
   return projectRoot;
 }
 
+async function createSecondaryProject(parentRoot, name) {
+  const projectRoot = path.join(parentRoot, name);
+  await mkdir(projectRoot, { recursive: true });
+  git(projectRoot, "init");
+  git(projectRoot, "config", "user.name", "Xiaoqi Test");
+  git(projectRoot, "config", "user.email", "xiaoqi@example.test");
+  await writeFile(path.join(projectRoot, "README.md"), `${name}\n`);
+  git(projectRoot, "add", "README.md");
+  git(projectRoot, "commit", "-m", "initial");
+  git(projectRoot, "branch", "-M", "main");
+  return projectRoot;
+}
+
 async function writeLedger(projectRoot, id) {
-  const requirementsDir = path.join(projectRoot, "sprint-manage", "requirements");
-  await mkdir(requirementsDir, { recursive: true });
-  const ledgerPath = path.join(requirementsDir, `${id}.yaml`);
+  const ledgerPath = getRequirementPath(projectRoot, id);
+  await mkdir(path.dirname(ledgerPath), { recursive: true });
   await writeFile(
     ledgerPath,
     `schema_version: 4
@@ -50,16 +67,16 @@ updated_by: "alice"
 协作:
   模式: single
   负责人: "alice"
-  参与人: []
-  基线分支: null
-  分支: null
-  工作区: null
-  集成分支: null
+仓库:
+  - id: "main"
+    root: "."
+    branch: null
+    worktree: null
+    baseBranch: null
 依赖需求: []
 冲突键: []
 影响范围:
   - "src/${id}/"
-并行单元: []
 计划: null
 证据索引:
   checks: []
@@ -106,8 +123,7 @@ test("rejects workspace preparation before the proposal is confirmed", async () 
       "用户决策: []",
     ),
   );
-  git(projectRoot, "add", "sprint-manage");
-  git(projectRoot, "commit", "-m", "add unconfirmed requirement");
+  git(projectRoot, "commit", "--allow-empty", "-m", "add unconfirmed requirement");
 
   const result = prepare(ledgerPath, projectRoot);
 
@@ -119,8 +135,7 @@ test("rejects workspace preparation before the proposal is confirmed", async () 
 test("prepares the first coding requirement in the current worktree", async () => {
   const projectRoot = await createProject();
   const ledgerPath = await writeLedger(projectRoot, "story-1001");
-  git(projectRoot, "add", "sprint-manage");
-  git(projectRoot, "commit", "-m", "add requirement");
+  git(projectRoot, "commit", "--allow-empty", "-m", "add requirement");
 
   const result = prepare(ledgerPath, projectRoot);
 
@@ -133,22 +148,11 @@ test("prepares the first coding requirement in the current worktree", async () =
   assert.equal(git(projectRoot, "branch", "--show-current"), "feature/story-1001");
 
   const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
-  assert.equal(ledger.协作.基线分支, "main");
-  assert.equal(ledger.协作.分支, "feature/story-1001");
-  assert.equal(ledger.协作.工作区, ".");
+  assert.deepEqual(ledger.协作, { 模式: "single", 负责人: "alice" });
+  assert.equal(ledger.仓库[0].baseBranch, "main");
+  assert.equal(ledger.仓库[0].branch, "feature/story-1001");
+  assert.equal(ledger.仓库[0].worktree, ".");
   assert.equal(ledger.交付状态, "not-started");
-
-  const session = readFileSync(
-    path.join(projectRoot, "sprint-manage", "local", "session.yaml"),
-    "utf8",
-  );
-  assert.match(session, /当前用户: "alice"/);
-  assert.match(session, /当前需求: "story-1001"/);
-
-  const gitignore = readFileSync(path.join(projectRoot, ".gitignore"), "utf8");
-  assert.match(gitignore, /^sprint-manage\/local\/$/m);
-  assert.match(gitignore, /^sprint-manage\/requirements\/\*\.yaml\.lock$/m);
-  assert.match(gitignore, /^\.worktrees\/$/m);
 });
 
 test("creates a separate worktree for a second coding requirement", async () => {
@@ -159,12 +163,11 @@ test("creates a separate worktree for a second coding requirement", async () => 
     firstLedger,
     firstSource
       .replace("交付状态: not-started", "交付状态: coding")
-      .replace("  基线分支: null", '  基线分支: "main"')
-      .replace("  分支: null", '  分支: "feature/story-1001"')
-      .replace("  工作区: null", '  工作区: "."'),
+      .replace("    branch: null", '    branch: "feature/story-1001"')
+      .replace("    worktree: null", '    worktree: "."')
+      .replace("    baseBranch: null", '    baseBranch: "main"'),
   );
-  git(projectRoot, "add", "sprint-manage");
-  git(projectRoot, "commit", "-m", "add active requirement");
+  git(projectRoot, "commit", "--allow-empty", "-m", "add active requirement");
   git(projectRoot, "checkout", "-b", "feature/story-1001");
   const secondLedger = await writeLedger(projectRoot, "story-1002");
 
@@ -173,31 +176,26 @@ test("creates a separate worktree for a second coding requirement", async () => 
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
   const expectedWorktree = path.join(projectRoot, ".worktrees", "story-1002");
-  const targetLedger = path.join(
-    expectedWorktree,
-    "sprint-manage",
-    "requirements",
-    "story-1002.yaml",
-  );
+  const targetLedger = secondLedger;
   assert.equal(output.mode, "created");
   assert.equal(path.resolve(output.worktree), expectedWorktree);
   assert.equal(output.branch, "feature/story-1002");
   assert.equal(output.baseBranch, "main");
   assert.equal(git(projectRoot, "branch", "--show-current"), "feature/story-1001");
   assert.equal(git(expectedWorktree, "branch", "--show-current"), "feature/story-1002");
-  assert.equal(existsSync(secondLedger), false);
+  assert.equal(existsSync(secondLedger), true);
 
   const ledger = parseProgressYaml(await readFile(targetLedger, "utf8"));
-  assert.equal(ledger.协作.基线分支, "main");
-  assert.equal(ledger.协作.分支, "feature/story-1002");
-  assert.equal(ledger.协作.工作区, ".");
+  assert.deepEqual(ledger.协作, { 模式: "single", 负责人: "alice" });
+  assert.equal(ledger.仓库[0].baseBranch, "main");
+  assert.equal(ledger.仓库[0].branch, "feature/story-1002");
+  assert.equal(ledger.仓库[0].worktree, path.join(".worktrees", "story-1002"));
   assert.equal(ledger.交付状态, "not-started");
 
-  const session = readFileSync(
-    path.join(expectedWorktree, "sprint-manage", "local", "session.yaml"),
-    "utf8",
+  assert.equal(
+    existsSync(path.join(expectedWorktree, "sprint-manage", "local", "session.yaml")),
+    false,
   );
-  assert.match(session, /当前需求: "story-1002"/);
 });
 
 test("moves an uncommitted second ledger into its isolated worktree without replacing the active session", async () => {
@@ -208,50 +206,82 @@ test("moves an uncommitted second ledger into its isolated worktree without repl
     firstLedger,
     firstSource
       .replace("交付状态: not-started", "交付状态: coding")
-      .replace("  基线分支: null", '  基线分支: "main"')
-      .replace("  分支: null", '  分支: "feature/story-1001"')
-      .replace("  工作区: null", '  工作区: "."'),
+      .replace("    branch: null", '    branch: "feature/story-1001"')
+      .replace("    worktree: null", '    worktree: "."')
+      .replace("    baseBranch: null", '    baseBranch: "main"'),
   );
-  git(projectRoot, "add", "sprint-manage/requirements/story-1001.yaml");
-  git(projectRoot, "commit", "-m", "add active requirement");
+  git(projectRoot, "commit", "--allow-empty", "-m", "add active requirement");
   git(projectRoot, "checkout", "-b", "feature/story-1001");
-  await mkdir(path.join(projectRoot, "sprint-manage", "local"), { recursive: true });
-  await writeFile(
-    path.join(projectRoot, "sprint-manage", "local", "session.yaml"),
-    '当前用户: "alice"\n当前需求: "story-1001"\n',
-  );
   const secondLedger = await writeLedger(projectRoot, "story-1002");
 
   const result = prepare(secondLedger, projectRoot);
 
   assert.equal(result.status, 0, result.stderr);
   const worktree = path.join(projectRoot, ".worktrees", "story-1002");
-  const targetLedger = path.join(
-    worktree,
-    "sprint-manage",
-    "requirements",
-    "story-1002.yaml",
-  );
-  assert.equal(existsSync(secondLedger), false);
+  const targetLedger = secondLedger;
+  assert.equal(existsSync(secondLedger), true);
   assert.equal(existsSync(targetLedger), true);
-  assert.match(
-    await readFile(path.join(projectRoot, "sprint-manage", "local", "session.yaml"), "utf8"),
-    /当前需求: "story-1001"/,
-  );
-  assert.match(
-    await readFile(path.join(worktree, "sprint-manage", "local", "session.yaml"), "utf8"),
-    /当前需求: "story-1002"/,
-  );
+  assert.equal(existsSync(path.join(projectRoot, "sprint-manage")), false);
+  assert.equal(existsSync(path.join(worktree, "sprint-manage")), false);
   const ledger = parseProgressYaml(await readFile(targetLedger, "utf8"));
-  assert.equal(ledger.协作.工作区, ".");
-  assert.equal(ledger.协作.分支, "feature/story-1002");
+  assert.equal(ledger.仓库[0].worktree, path.join(".worktrees", "story-1002"));
+  assert.equal(ledger.仓库[0].branch, "feature/story-1002");
+});
+
+test("prepare output validates without unsupported collaboration fields", async () => {
+  const projectRoot = await createProject();
+  const ledgerPath = await writeLedger(projectRoot, "story-2000");
+  git(projectRoot, "commit", "--allow-empty", "-m", "add active requirement");
+
+  const result = await prepareWorkspaces(ledgerPath, projectRoot, "alice");
+
+  assert.equal(result.outcome, "completed");
+  const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
+  assert.deepEqual(ledger.协作, { 模式: "single", 负责人: "alice" });
+  assert.deepEqual(validateProgressFile(ledgerPath), []);
+});
+
+test("prepares a single top-level repository entry", async () => {
+  const projectRoot = await createProject();
+  const ledgerPath = await writeLedger(projectRoot, "story-2001");
+  const source = await readFile(ledgerPath, "utf8");
+  await writeFile(ledgerPath, `${source.replace(/协作:\n[\s\S]*?依赖需求:/, `协作:\n  模式: single\n  负责人: "alice"\n仓库:\n  - id: "main"\n    root: "."\n    branch: null\n    worktree: null\n依赖需求:`)}`);
+  git(projectRoot, "commit", "--allow-empty", "-m", "add repository ledger");
+
+  const result = await prepareWorkspaces(ledgerPath, projectRoot, "alice");
+
+  assert.equal(result.repositories.length, 1);
+  assert.equal(result.repositories[0].branch, "feature/story-2001");
+  const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
+  assert.equal(ledger.仓库[0].root, ".");
+  assert.equal(ledger.仓库[0].branch, "feature/story-2001");
+  assert.equal(ledger.仓库[0].worktree, ".");
+});
+
+test("prepares every repository and writes branches back to one global ledger", async () => {
+  const projectRoot = await createProject();
+  const secondaryRoot = await createSecondaryProject(path.dirname(projectRoot), `secondary-${path.basename(projectRoot)}`);
+  const ledgerPath = await writeLedger(projectRoot, "story-2002");
+  const source = await readFile(ledgerPath, "utf8");
+  await writeFile(ledgerPath, source.replace(/协作:\n[\s\S]*?依赖需求:/, `协作:\n  模式: single\n  负责人: "alice"\n仓库:\n  - id: "main"\n    root: "."\n    branch: null\n    worktree: null\n  - id: "secondary"\n    root: "../${path.basename(secondaryRoot)}"\n    branch: null\n    worktree: null\n依赖需求:`));
+  git(projectRoot, "commit", "--allow-empty", "-m", "add multi repository ledger");
+
+  const result = await prepareWorkspaces(ledgerPath, projectRoot, "alice");
+
+  assert.deepEqual(result.repositories.map((repo) => repo.id), ["main", "secondary"]);
+  assert.equal(git(projectRoot, "branch", "--show-current"), "feature/story-2002");
+  assert.equal(git(secondaryRoot, "branch", "--show-current"), "feature/story-2002-secondary");
+  const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
+  assert.equal(ledger.仓库[0].branch, "feature/story-2002");
+  assert.equal(ledger.仓库[1].branch, "feature/story-2002-secondary");
+  assert.equal(ledger.仓库[1].root, `../${path.basename(secondaryRoot)}`);
+  assert.equal(existsSync(path.join(projectRoot, "sprint-manage", "local", "session.yaml")), false);
 });
 
 test("does not switch the current worktree when it has uncommitted changes", async () => {
   const projectRoot = await createProject();
   const ledgerPath = await writeLedger(projectRoot, "story-1001");
-  git(projectRoot, "add", "sprint-manage");
-  git(projectRoot, "commit", "-m", "add requirement");
+  git(projectRoot, "commit", "--allow-empty", "-m", "add requirement");
   await writeFile(path.join(projectRoot, "README.md"), "uncommitted\n");
 
   const result = prepare(ledgerPath, projectRoot);
@@ -260,7 +290,9 @@ test("does not switch the current worktree when it has uncommitted changes", asy
   assert.match(result.stderr, /未提交修改/);
   assert.equal(git(projectRoot, "branch", "--show-current"), "main");
   const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
-  assert.equal(ledger.协作.基线分支, null);
-  assert.equal(ledger.协作.分支, null);
-  assert.equal(ledger.协作.工作区, null);
+  assert.equal(ledger.协作.模式, "single");
+  assert.equal(ledger.协作.负责人, "alice");
+  assert.equal(ledger.仓库[0].branch, null);
+  assert.equal(ledger.仓库[0].worktree, null);
+  assert.equal(ledger.仓库[0].baseBranch, null);
 });

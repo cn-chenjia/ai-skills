@@ -8,6 +8,8 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
+import { getRequirementsDir } from "./ledger-paths.mjs";
+
 const RUNTIME_FILES = [
   "initialize-requirement.mjs",
   "prepare-workspace.mjs",
@@ -223,12 +225,8 @@ function checkOpenSpecProject(projectRoot) {
 
 
 
-function checkRequirements(projectRoot) {
-  const requirementsPath = path.join(
-    projectRoot,
-    "sprint-manage",
-    "requirements",
-  );
+function checkRequirements(projectRoot, homeDir) {
+  const requirementsPath = getRequirementsDir(projectRoot, homeDir);
   return existsSync(requirementsPath)
     ? check("pass", "需求账本目录已准备")
     : check("warn", "尚未创建需求账本目录，首次跟踪需求时再创建即可");
@@ -251,7 +249,7 @@ export async function runDoctor(
     superpowers: checkSuperpowers(projectRoot, homeDir),
     openSpecSkill: checkSkill("openspec", "OpenSpec", projectRoot, homeDir),
     openSpecProject: checkOpenSpecProject(projectRoot),
-    requirements: checkRequirements(projectRoot),
+    requirements: checkRequirements(projectRoot, homeDir),
   };
   return {
     ok: Object.values(checks).every((result) => result.status !== "fail"),

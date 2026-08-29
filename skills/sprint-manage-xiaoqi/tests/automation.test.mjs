@@ -260,8 +260,37 @@ test("runs evidence-driven actions until the ledger reaches ready", async () => 
   });
 
   assert.equal(result.status, "ready");
+  assert.equal(result.outcome, "completed");
+  assert.equal(result.summary, "自动化推进已到达 ready");
+  assert.deepEqual(result.evidence, { kind: "openspec-verify", result: "passed" });
+  assert.deepEqual(result.blockers, []);
+  assert.equal(result.recommended_next, "closing");
   assert.deepEqual(actions, ["check", "review", "openspec-verify"]);
   assert.equal(deliveryStatus(parseProgressYaml(await readFile(ledgerPath, "utf8"))), "ready");
+});
+
+test("returns the common protocol when confirmation is required", async () => {
+  const ledgerPath = await createLedger();
+
+  const result = await runUntilReady({
+    ledgerPath,
+    owner: "alice",
+    resolveNextAction() {
+      return { name: "apply", targetStatus: "verified" };
+    },
+    async executeAction() {
+      return {
+        outcome: "needs_confirmation",
+        summary: "需要确认数据库变更",
+      };
+    },
+  });
+
+  assert.equal(result.outcome, "needs-confirmation");
+  assert.equal(result.summary, "需要确认数据库变更");
+  assert.deepEqual(result.evidence, null);
+  assert.deepEqual(result.blockers, ["需要确认数据库变更"]);
+  assert.equal(result.recommended_next, "human-confirmation");
 });
 
 test("stops when an action needs confirmation", async () => {
@@ -337,7 +366,11 @@ test("escalates after repeated identical failures", async () => {
   });
 
   assert.equal(result.status, "blocked");
+  assert.equal(result.outcome, "blocked");
   assert.match(result.summary, /自动修复|失败/);
+  assert.equal(result.evidence, null);
+  assert.equal(result.blockers.length, 1);
+  assert.equal(result.recommended_next, "manual-intervention");
   assert.equal(result.repairs.length, 2);
 });
 

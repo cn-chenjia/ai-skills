@@ -22,11 +22,9 @@ import {
   parseProgressYaml,
   validateProgress,
 } from "./validate-progress.mjs";
+import { getRequirementPath, getRequirementsDir } from "./ledger-paths.mjs";
 
-const IGNORE_LINES = [
-  "sprint-manage/local/",
-  "sprint-manage/requirements/*.yaml.lock",
-];
+const IGNORE_LINES = [];
 
 function hasText(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -48,7 +46,7 @@ function ensureIgnoreRules(projectRoot) {
   writeFileSync(ignorePath, `${source}${prefix}${missing.join("\n")}\n`, "utf8");
 }
 
-function newLedger(requirementId, name, changeId, owner, confirmedBy) {
+function newLedger(projectRoot, requirementId, name, changeId, owner, confirmedBy) {
   const now = new Date().toISOString();
   return {
     schema_version: 4,
@@ -66,16 +64,13 @@ function newLedger(requirementId, name, changeId, owner, confirmedBy) {
     协作: {
       模式: "single",
       负责人: owner,
-      参与人: [],
-      基线分支: null,
-      分支: null,
-      工作区: null,
-      集成分支: null,
     },
+    仓库: [
+      { id: "main", root: path.resolve(projectRoot), branch: null, worktree: null },
+    ],
     依赖需求: [],
     冲突键: [],
     影响范围: [],
-    并行单元: [],
     计划: null,
     证据索引: {
       apply: null,
@@ -237,8 +232,8 @@ export function initializeRequirement(
   }
   validateRequirementId(requirementId);
 
-  const requirementsDir = path.join(root, "sprint-manage", "requirements");
-  const ledgerPath = path.join(requirementsDir, `${requirementId}.yaml`);
+  const requirementsDir = getRequirementsDir(root);
+  const ledgerPath = getRequirementPath(root, requirementId);
   mkdirSync(requirementsDir, { recursive: true });
   ensureIgnoreRules(root);
 
@@ -254,6 +249,7 @@ export function initializeRequirement(
   }
 
   const document = newLedger(
+    root,
     requirementId,
     name,
     changeId,

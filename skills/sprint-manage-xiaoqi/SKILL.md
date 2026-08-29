@@ -1,15 +1,15 @@
 ---
 name: sprint-manage-xiaoqi
-description: "Use when the user explicitly invokes 小七, asks to track, advance, pause, resume, diagnose, or close a requirement/sprint workflow, asks for the next workflow action, or continues a project that already has sprint-manage/requirements/. Once activated in a session, keep using this skill for every later user message, including short confirmations such as 确认、可以、执行、继续、好 and 没问题, until the user explicitly says 退出小七. Do not route those continuation messages to another skill. Do not use for ordinary requirements analysis, proposal discussion, bug fixes, code review, or coding requests before 小七 is activated unless the user also wants workflow tracking or state management."
+description: "Use when the user explicitly invokes 小七, asks to track, advance, pause, resume, diagnose, or close a requirement/sprint workflow, asks for the next workflow action, or continues a project that already has a tracked ledger under ~/.xiaoqi/. Once activated in a session, keep using this skill for every later user message, including short confirmations such as 确认、可以、执行、继续、好 and 没问题, until the user explicitly says 退出小七. Do not route those continuation messages to another skill. Do not use for ordinary requirements analysis, proposal discussion, bug fixes, code review, or coding requests before 小七 is activated unless the user also wants workflow tracking or state management."
 ---
 
-# 会话锁
+# 流程接管
 
-> 一旦本技能被加载激活，当前会话的后续交互都受本文件约束；只有用户输入 `退出小七`，或在 proposal 确认后明确选择“确认并结束本次会话”，才会解除会话接管。
+> 一旦本技能被加载激活，当前会话的后续交互都受本文件约束；用户输入 `退出小七` 后解除接管。
 
-小七始终拥有当前需求的会话和流程控制权。内部能力只能被小七调用，不能创建独立入口、平行流程或替代父流程状态。
+小七始终拥有需求流程控制权。内部能力只能被小七调用，不能创建独立入口、平行流程或替代父流程状态。
 
-`ready`、`blocked`、`closed` 和用户要求暂停、切换需求或只看计划，都只是停止或暂停自动推进，不解除会话锁。后续消息仍由小七接续处理，直到用户输入 `退出小七`。
+`ready`、`blocked`、`closed` 和用户要求暂停，都只是停止或暂停自动推进；需求选择通过需求编号和全局账本完成，不依赖本地 session 文件。
 
 ## 续接消息
 
@@ -23,9 +23,9 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 
 处理续接消息时，结合上一轮待确认事项、需求账本、OpenSpec 真实状态和最近一次动作判断下一步。短消息不能被当成新的普通请求。
 
-只有 `退出小七` 或用户在 proposal 确认后明确选择“确认并结束本次会话”才能解除当前接管。暂停、切换需求或只看计划，也必须先由小七处理，并只暂停自动推进。
+只有 `退出小七` 才能解除当前接管。暂停或切换需求必须先由小七处理，并只暂停自动推进。
 
-一个小七会话只聚焦一个当前需求、一套需求语义上下文和一个当前 worktree；代码可以在多个 worktree 并存，但不得在同一小七会话中交错讨论或自动推进多个需求。
+同一用户可以并行推进多个需求；每个需求保持独立的 `change_id` 和全局账本条目。单个需求可以登记并操作多个仓库，主技能每次根据用户明确的需求和仓库范围读取对应事实。
 
 # 小七研发迭代总控
 
@@ -42,7 +42,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 
 小七账本只记录跨工具的决策、阻塞、证据索引和交付状态，不替代 OpenSpec 状态，也不复制任务正文或工具内部流程。
 
-需求确认后，主技能负责保持同一个需求、同一个账本和同一个父流程；参考文件只提供动作规则，不得释放会话锁、宣告父流程完成或替换真实状态。
+需求确认后，主技能负责保持同一个需求、同一个账本和同一个父流程；参考文件只提供动作规则，不得释放流程接管、宣告父流程完成或替换真实状态。自动化脚本只推进已初始化账本中的证据门禁，不负责替代 OpenSpec 需求动作、工作区准备、编码执行、评审或分支收尾。
 
 小七不凭用户口头描述、旧缓存或单个文件存在推进交付状态。每次推进都必须有对应的原生状态和可定位证据。
 
@@ -53,7 +53,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 - 用户明确提到“小七”。
 - 用户要求查看、创建、推进、暂停、恢复、诊断或关闭研发流程。
 - 用户询问已追踪需求或迭代的下一动作。
-- 项目已有 `sprint-manage/requirements/`，且用户正在继续该流程。
+- 用户正在继续 `~/.xiaoqi/` 中已有的需求流程。
 
 普通需求分析、提案讨论、Bug 修复、代码评审或单纯代码实现，不因出现“需求”“任务”“修复”等词自动触发。
 
@@ -66,7 +66,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 3. 读取 OpenSpec 的最新 change 列表和目标 change 状态。
 4. 检查当前意图、最近动作、项目事实和是否存在人工门禁。
 5. 若有多个候选需求，先请求用户明确选择；不得模糊匹配。
-6. **会话锁切换检查**：读取 `sprint-manage/local/session.yaml` 的 `当前需求`，若与用户本次要处理的需求编号不一致，必须先明确告知用户"当前会话锁定的是 {{old}}，是否切换到 {{new}}？"，并检查 {{old}} 需求的 `流程状态`：若为 `active` 且未 `closed`，提示用户旧需求仍进行中；只有用户确认后才更新 session.yaml。不得静默覆盖 session。
+6. **全局账本检查**：从 `~/.xiaoqi/projects/<project-id>/requirements/` 读取当前项目的需求账本。多个需求可以并行推进；若用户未明确需求编号且存在多个候选，必须请求用户选择，不得依赖 session 或静默切换。
 
 没有账本时，只能先完成需求澄清和方案确认。proposal 未获用户确认前，不得初始化账本。
 
@@ -74,13 +74,13 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 
 1. **确认并立即实施当前需求**：准备工作区并进入当前动作。
 2. **确认并暂停当前需求**：账本保持 `not-started`，记录待续动作，不准备工作区或进入 `apply`。
-3. **确认并结束本次会话，稍后新会话创建下一个需求**：账本保持 `not-started`，不准备工作区或进入 `apply`，并解除当前小七会话锁。
+3. **确认并结束本次会话，稍后新会话创建下一个需求**：账本保持 `not-started`，不准备工作区或进入 `apply`。
 
 没有账本时不得进入 `apply`、验证、评审、归档或 `finish`。
 
-准备工作区前，主技能必须评估需求是否复杂且明确需要多人协作。复杂性包括跨模块或公共链路、数据库或接口契约变化、tasks 超过 5 项或存在明显依赖、回归范围大，或存在多个写入范围不重叠的可独立任务。仅在同时满足复杂性和多人协作时，先路由协作评估门禁；`shared-change` 的集成分支、协作单元及冲突校验完整通过前不得准备工作区或进入 `apply`。其他需求按原流程准备工作区并持续执行。
+准备工作区前，主技能必须确认当前需求的仓库列表、分支、工作区和跨需求依赖事实。单人可以并行推进多个需求；单个需求可以包含多个仓库，但每个仓库的路径和工作区必须明确且不得覆盖其他需求事实。
 
-账本存在但锁、版本、分支、工作区或证据不一致时，先转到状态或协作参考处理；未对账前不覆盖已有事实。
+账本存在但锁、版本、分支、工作区或证据不一致时，先转到状态参考处理；未对账前不覆盖已有事实。
 
 需求进入实施后，OpenSpec tasks 是当前动作的事实来源；需求、设计或任务发生变化时，保持同一 `change_id` 并先更新原生事实。
 
@@ -92,7 +92,6 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 | --- | --- |
 | 新建、恢复、查看需求；账本或状态问题 | [state-contract.md](references/state-contract.md) |
 | 开始、继续、更新、验证；普通执行失败 | [step-details.md](references/step-details.md) |
-| 复杂且明确需要多人协作的需求，或多需求、多人、分支、工作区或写入范围冲突 | [collaboration.md](references/collaboration.md) |
 | 已到 `ready`；PR、合并、保留、归档、关闭需求或关闭整个迭代 | [closing.md](references/closing.md) |
 | 账本运行时、状态推进或证据校验 | [runtime-contract.md](references/runtime-contract.md) |
 
@@ -104,7 +103,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 
 ## 执行返回
 
-需求确认并完成建账后，当前模型继续执行已确认的流程；不得把普通续接交给独立计划或平行会话。
+需求确认并完成建账后，当前模型继续执行已确认的流程；不得把普通续接交给独立计划或平行会话。自动化推进仅适用于账本已初始化、仓库与工作区已登记且当前动作已明确的需求；它不能作为新需求初始化、工作区准备或完整研发流程的替代入口。
 
 每次下游动作完成或中断后，必须返回主技能，由主技能重新读取真实状态。下游返回：
 
@@ -126,7 +125,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 
 主技能不得把参考文件的推荐动作直接当成已执行事实；执行结果必须带回证据，并再次经过主技能判断。
 
-任何参考文件完成后都回到同一个会话锁和同一个路由入口。
+任何参考文件完成后都回到同一个流程接管和同一个路由入口。
 
 主技能只保留总控判断，动作细节以对应参考文件的最新内容为准。
 
@@ -150,12 +149,11 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 - 流程状态为 `closed`，且 archive、finish 和最终交付证据齐全。
 - 用户明确要求暂停、切换需求或先只看计划，并已由小七记录待续动作。
 
-`ready`、`blocked`、`closed` 的含义以最新账本和 OpenSpec 事实为准。这些状态不解除会话锁；只有用户输入 `退出小七` 才结束小七接管。
+`ready`、`blocked`、`closed` 的含义以最新账本和 OpenSpec 事实为准。这些状态不解除流程接管；只有用户输入 `退出小七` 才结束小七接管。
 
 ## Resources
 
 - [state-contract.md](references/state-contract.md)：账本、状态、证据、锁、版本和迁移。
 - [step-details.md](references/step-details.md)：动作选择、连续执行、验证和失败恢复。
-- [collaboration.md](references/collaboration.md)：多需求、多人、分支、工作区和写入范围冲突。
 - [closing.md](references/closing.md)：`ready` 后的用户选择、同步、归档、收尾和关闭。
 - [runtime-contract.md](references/runtime-contract.md)：运行时安装、初始化检查和运行时边界。

@@ -17,11 +17,7 @@ const DELIVERY_STATUS_VALUES = new Set([
   "kept",
 ]);
 const FINAL_DELIVERY_STATUS_VALUES = new Set(["pr-open", "merged", "kept"]);
-const COLLABORATION_MODE_VALUES = new Set([
-  "single",
-  "independent",
-  "shared-change",
-]);
+const COLLABORATION_MODE_VALUES = new Set(["single", "independent"]);
 const ACTION_VALUES = new Set([
   "explore",
   "propose",
@@ -130,7 +126,10 @@ function findMappingColon(content) {
       quote = character;
       continue;
     }
-    if (character === ":") {
+    if (
+      character === ":" &&
+      (index === content.length - 1 || /\s/.test(content[index + 1]))
+    ) {
       return index;
     }
   }
@@ -624,84 +623,31 @@ export function validateProgress(document) {
     addIssue(issues, "missing-collaboration", "协作", "必须提供协作配置");
   } else {
     validateEnum(issues, collaboration.模式, COLLABORATION_MODE_VALUES, "invalid-collaboration-mode", "协作.模式", "协作模式");
-    if (!hasText(collaboration.负责人)) {
-      addIssue(issues, "missing-lead", "协作.负责人", "必须指定唯一负责人");
-    }
-    if (
-      document.交付状态 !== "not-started" &&
-      (!hasText(collaboration.分支) || !hasText(collaboration.工作区))
-    ) {
-      addIssue(issues, "missing-workspace-isolation", "协作", "正在开发的需求必须配置独立分支和工作区");
-    }
-    if (collaboration.模式 === "shared-change" && !hasText(collaboration.集成分支)) {
-      addIssue(issues, "missing-integration-branch", "协作.集成分支", "shared-change 必须配置集成分支");
+    if (!hasText(collaboration.负责人)) addIssue(issues, "missing-lead", "协作.负责人", "必须指定唯一负责人");
+    for (const field of ["参与人", "集成分支"]) {
+      if (Object.hasOwn(collaboration, field)) addIssue(issues, "unsupported-collaboration-field", `协作.${field}`, `不再支持协作.${field}`);
     }
   }
+  if (Object.hasOwn(document, "并行单元")) addIssue(issues, "unsupported-collaboration-field", "并行单元", "不再支持并行单元");
 
-  const lanes = Array.isArray(document.并行单元) ? document.并行单元 : [];
-  if (collaboration?.模式 === "shared-change" && lanes.length < 2) {
-    addIssue(issues, "insufficient-collaboration-lanes", "并行单元", "shared-change 至少需要两个并行单元");
+  const repositories = Array.isArray(document.仓库) ? document.仓库 : [];
+  if (!Array.isArray(document.仓库) || repositories.length === 0) {
+    addIssue(issues, "missing-repositories", "仓库", "必须提供至少一个仓库");
   }
-  const laneIds = new Set();
-  const laneBranches = new Set();
-  const laneWorktrees = new Set();
-  for (const [index, lane] of lanes.entries()) {
-    const lanePath = `并行单元[${index}]`;
-    if (!hasText(lane?.id) || laneIds.has(lane.id)) {
-      addIssue(issues, "duplicate-lane-id", `${lanePath}.id`, "并行单元 ID 必须非空且唯一");
-    } else laneIds.add(lane.id);
-    if (!hasText(lane?.owner)) addIssue(issues, "missing-lane-owner", `${lanePath}.owner`, "并行单元必须指定 owner");
-    if (!hasText(lane?.branch) || laneBranches.has(lane.branch)) {
-      addIssue(issues, "duplicate-lane-branch", `${lanePath}.branch`, "并行单元 branch 必须非空且唯一");
-    } else laneBranches.add(lane.branch);
-    if (!hasText(lane?.worktree) || laneWorktrees.has(lane.worktree)) {
-      addIssue(issues, "duplicate-lane-worktree", `${lanePath}.worktree`, "并行单元 worktree 必须非空且唯一");
-    } else laneWorktrees.add(lane.worktree);
-    if (!Array.isArray(lane?.write_scope) || lane.write_scope.length === 0) {
-      addIssue(issues, "missing-write-scope", `${lanePath}.write_scope`, "并行单元必须声明 write_scope");
-    }
-    if (lane?.branch === collaboration?.集成分支) {
-      addIssue(issues, "lane-uses-integration-branch", `${lanePath}.branch`, "并行单元不能直接使用集成分支");
-    }
-  }
-
-  for (let left = 0; left < lanes.length; left += 1) {
-    for (let right = left + 1; right < lanes.length; right += 1) {
-      for (const leftScope of lanes[left]?.write_scope ?? []) {
-        for (const rightScope of lanes[right]?.write_scope ?? []) {
-          const a = normalizeScope(leftScope);
-          const b = normalizeScope(rightScope);
-          if (a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`)) {
-            addIssue(issues, "lane-write-scope-conflict", `并行单元[${left}].write_scope`, `写入范围“${a}”与“${b}”重叠`);
-          }
-        }
-      }
-    }
-  }
-
-  const dependencies = new Map(lanes.map((lane) => [lane.id, lane.depends_on ?? []]));
-  for (const [laneId, dependencyList] of dependencies) {
-    for (const dependency of dependencyList) {
-      if (!dependencies.has(dependency)) {
-        addIssue(issues, "missing-lane-dependency", `并行单元.${laneId}.depends_on`, `依赖单元“${dependency}”不存在`);
-      }
-    }
-  }
-  const visiting = new Set();
-  const visited = new Set();
-  const hasCycle = (laneId) => {
-    if (visiting.has(laneId)) return true;
-    if (visited.has(laneId)) return false;
-    visiting.add(laneId);
-    for (const dependency of dependencies.get(laneId) ?? []) {
-      if (dependencies.has(dependency) && hasCycle(dependency)) return true;
-    }
-    visiting.delete(laneId);
-    visited.add(laneId);
-    return false;
-  };
-  if ([...dependencies.keys()].some(hasCycle)) {
-    addIssue(issues, "lane-dependency-cycle", "并行单元", "并行单元依赖存在循环");
+  const repositoryIds = new Set();
+  const repositoryBranches = new Set();
+  const repositoryWorktrees = new Set();
+  for (const [index, repository] of repositories.entries()) {
+    const repositoryPath = `仓库[${index}]`;
+    if (!hasText(repository?.id) || repositoryIds.has(repository.id)) addIssue(issues, "duplicate-repository-id", `${repositoryPath}.id`, "仓库 id 必须非空且唯一");
+    else repositoryIds.add(repository.id);
+    if (!hasText(repository?.root)) addIssue(issues, "missing-repository-root", `${repositoryPath}.root`, "仓库 root 必须非空");
+    if (document.交付状态 !== "not-started" && !hasText(repository?.branch)) addIssue(issues, "missing-repository-branch", `${repositoryPath}.branch`, "交付未开始前每个仓库必须配置 branch");
+    if (document.交付状态 !== "not-started" && !hasText(repository?.worktree)) addIssue(issues, "missing-repository-worktree", `${repositoryPath}.worktree`, "交付未开始前每个仓库必须配置 worktree");
+    if (hasText(repository?.branch) && repositoryBranches.has(repository.branch)) addIssue(issues, "duplicate-repository-branch", `${repositoryPath}.branch`, "仓库 branch 必须唯一");
+    else if (hasText(repository?.branch)) repositoryBranches.add(repository.branch);
+    if (hasText(repository?.worktree) && repositoryWorktrees.has(repository.worktree)) addIssue(issues, "duplicate-repository-worktree", `${repositoryPath}.worktree`, "仓库 worktree 必须唯一");
+    else if (hasText(repository?.worktree)) repositoryWorktrees.add(repository.worktree);
   }
 
   if (document.流程状态 === "blocked" && (!Array.isArray(document.阻塞项) || document.阻塞项.length === 0)) {
@@ -762,8 +708,9 @@ export function validateProgressDirectory(directoryPath) {
       if (changeOwners.has(document.change_id)) addIssue(issues, "duplicate-change-id", name, `change_id“${document.change_id}”已被 ${changeOwners.get(document.change_id)} 使用`);
       else changeOwners.set(document.change_id, name);
     }
-    const branches = [document.协作?.分支, document.协作?.集成分支, ...(document.并行单元 ?? []).map((lane) => lane.branch)];
-    const worktrees = [document.协作?.工作区, ...(document.并行单元 ?? []).map((lane) => lane.worktree)];
+    const repositories = Array.isArray(document.仓库) ? document.仓库 : [];
+    const branches = repositories.map((repository) => repository.branch);
+    const worktrees = repositories.map((repository) => repository.worktree);
     for (const branch of branches.filter(hasText)) {
       if (branchOwners.has(branch) && branchOwners.get(branch) !== name) addIssue(issues, "duplicate-branch", name, `分支“${branch}”已被 ${branchOwners.get(branch)} 使用`);
       else branchOwners.set(branch, name);

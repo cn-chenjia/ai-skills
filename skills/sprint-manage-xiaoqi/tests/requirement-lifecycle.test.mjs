@@ -8,6 +8,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { parseProgressYaml } from "../scripts/validate-progress.mjs";
+import { getRequirementPath } from "../scripts/ledger-paths.mjs";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const skillDir = path.resolve(testDir, "..");
@@ -43,12 +44,8 @@ test("initializes the first tracked requirement before implementation", async ()
 
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
-  const ledgerPath = path.join(
-    projectRoot,
-    "sprint-manage",
-    "requirements",
-    "story-66102.yaml",
-  );
+  const ledgerPath = JSON.parse(result.stdout).ledger;
+  assert.equal(ledgerPath, getRequirementPath(projectRoot, "story-66102"));
   assert.equal(path.resolve(output.ledger), ledgerPath);
   assert.equal(output.recommendedNext, "apply");
   assert.equal(existsSync(ledgerPath), true);
@@ -60,16 +57,15 @@ test("initializes the first tracked requirement before implementation", async ()
   assert.equal(ledger.流程状态, "active");
   assert.equal(ledger.交付状态, "not-started");
   assert.equal(ledger.推荐动作, "apply");
-  assert.equal(ledger.协作.负责人, "alice");
-  assert.equal(ledger.协作.分支, null);
-  assert.equal(ledger.协作.工作区, null);
+  assert.deepEqual(ledger.协作, { 模式: "single", 负责人: "alice" });
+  assert.deepEqual(ledger.仓库, [
+    { id: "main", root: projectRoot, branch: null, worktree: null },
+  ]);
   assert.equal(ledger.用户决策.at(-1).kind, "proposal-confirmation");
   assert.equal(ledger.用户决策.at(-1).outcome, "approved");
   assert.equal(ledger.用户决策.at(-1).actor, "requester");
 
-  const gitignore = await readFile(path.join(projectRoot, ".gitignore"), "utf8");
-  assert.match(gitignore, /^sprint-manage\/local\/$/m);
-  assert.match(gitignore, /^sprint-manage\/requirements\/\*\.yaml\.lock$/m);
+  assert.equal(existsSync(path.join(projectRoot, "sprint-manage")), false);
 });
 
 test("does not overwrite an existing requirement ledger", async () => {
@@ -159,7 +155,7 @@ test("closes a requirement only after archive and finish evidence exist", async 
   assert.equal(closed.事件日志.at(-1).kind, "workflow-closed");
 });
 
-test("marks the local session closed when it belongs to the closed requirement", async () => {
+test("does not create or update a local session when closing a requirement", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-close-session-"));
   const ledgerPath = path.join(directory, "sprint-manage", "requirements", "story-1001.yaml");
   const source = (await readFile(
@@ -187,7 +183,8 @@ test("marks the local session closed when it belongs to the closed requirement",
   const result = runScript(closeScript, [ledgerPath, "alice"], directory);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(
+  assert.equal(existsSync(path.join(directory, "sprint-manage", "local", "session.yaml")), true);
+  assert.doesNotMatch(
     await readFile(path.join(directory, "sprint-manage", "local", "session.yaml"), "utf8"),
     /会话状态: "closed"/,
   );

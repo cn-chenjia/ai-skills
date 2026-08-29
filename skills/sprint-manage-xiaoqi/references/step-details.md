@@ -45,7 +45,7 @@ CLI 命令；后者用于更新 OpenSpec instruction 文件，不能拿来修改
 propose
   -> 用户确认 + 建账
   -> 用户选择立即实施
-  -> 协作评估（不满足“复杂且多人协作”则跳过）
+  -> 全局账本登记仓库
   -> prepare-workspace
   -> apply（逐任务 TDD）
   -> 项目验证 + OpenSpec verify
@@ -65,17 +65,9 @@ propose
 
 简单不等于跳过 TDD、验证或真实证据。
 
-## 复杂路径
+## 多需求与多仓库路径
 
-以下任一情况优先视为复杂变更：
-
-- 跨模块、公共链路、数据库、接口契约或权限变化。
-- tasks 超过 5 项或存在明显依赖顺序。
-- 引入外部系统、新技术、迁移或兼容处理。
-- 回归范围大，需要完整测试策略。
-- 存在多个可独立执行且写入范围不冲突的任务。
-
-需求完成初始化后、准备工作区前，若满足复杂变更条件且明确需要多人协作，必须返回主技能，并将 `recommended_next` 设置为抽象意图 `collaboration-gate`，由主技能重新路由。协作评估未完成前不得准备工作区或进入 `apply`。涉及多需求、多人、分支、工作区或写入范围冲突时（包括单人并行多个需求、多人分别开发多个需求或大型需求多人分工的集成分支和 `write_scope`），同样返回主技能处理。
+同一用户可以并行推进多个需求；每个需求独立使用一个 OpenSpec change 和一个全局账本文件。单个需求可以登记多个仓库，进入 `apply` 前必须为每个仓库确认 `root`、branch 和 worktree，且不得与其他 active 需求复用。
 
 流程：
 
@@ -84,10 +76,10 @@ OpenSpec explore
   -> OpenSpec propose
   -> 用户确认 + 建账
   -> 用户选择立即实施
-  -> 协作评估（复杂且明确需要多人协作时为必经门禁）
+  -> 全局账本登记仓库
   -> prepare-workspace
   -> 当前模型持续执行
-  -> worktree + TDD + subagents/executing-plans
+  -> 每个仓库分别执行 TDD 与验证
   -> 项目验证 + code review
   -> OpenSpec verify
   -> ready
@@ -207,26 +199,22 @@ OpenSpec verify：
 `explore` 确认后的“确认执行”“开始执行”“方案没问题”等表达必须进入
 当前模型连续执行，不得调用独立 `writing-plans`。
 
-需求确认后，由当前模型负责：
+需求确认后，由当前模型负责协调以下边界清晰的动作：
 
 ```text
 用户确认
   -> initialize-requirement
-  -> 协作评估（复杂且明确需要多人协作时）
+  -> 全局账本登记仓库
   -> prepare-workspace
-not-started
-  -> apply
-  -> coding
-  -> check
-  -> verified
-  -> review
-  -> reviewed
+  -> 由宿主工具执行编码、测试和评审
+  -> 记录 apply/check/review 证据
   -> openspec-verify
   -> ready
 ```
 
-当需求明确或用户已经确认 `explore` 结果时，当前模型必须持续推进。只有出现人工门禁、
-`blocked` 或证据无法取得时，才暂停等待用户处理。
+`auto-runner` 等自动化脚本只在账本已初始化、仓库与工作区已登记且当前动作明确时，推进已有账本的证据门禁。它不负责创建需求账本、准备工作区、代替 OpenSpec explore/propose/update、编写代码、执行人工评审或完成 archive/finish。
+
+当需求明确或用户已经确认 `explore` 结果时，当前模型应继续推进允许自动执行的动作；遇到建账、工作区准备、编码、评审、归档、分支收尾、人工门禁、`blocked` 或证据无法取得时，必须由主技能协调对应宿主工具或暂停等待用户处理。
 ## 自动修复边界
 
 测试失败、构建失败和普通 OpenSpec 校验失败属于可自动修复错误：
