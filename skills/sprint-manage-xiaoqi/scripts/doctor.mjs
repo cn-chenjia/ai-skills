@@ -24,36 +24,36 @@ function check(status, message, detail = undefined) {
   return { status, message, ...(detail ? { detail } : {}) };
 }
 
-function defaultCommandRunner(projectRoot) {
+function defaultCommandRunner(projectRoot, command) {
+  const [executable, ...args] = command;
   try {
-    const run = (args) => {
-      if (process.platform === "win32") {
-        return execFileSync(
-          "powershell.exe",
-          ["-NoProfile", "-Command", `openspec ${args.join(" ")}`],
-          {
-            cwd: projectRoot,
-            encoding: "utf8",
-            stdio: ["ignore", "pipe", "pipe"],
-          },
-        );
-      }
-      return execFileSync("openspec", args, {
+    if (executable === "node") {
+      const output = execFileSync(process.execPath, args, {
         cwd: projectRoot,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
       });
-    };
-    const version = run(["--version"]).trim();
-    run(["list", "--json"]);
-    return { ok: true, version };
+      return { ok: true, output: output.trim() };
+    }
+    const output = process.platform === "win32"
+      ? execFileSync(
+          "powershell.exe",
+          ["-NoProfile", "-Command", `${executable} ${args.join(" ")}`],
+          { cwd: projectRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+        )
+      : execFileSync(executable, args, {
+          cwd: projectRoot,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+    return { ok: true, output: output.trim() };
   } catch (error) {
     return {
       ok: false,
       message:
         error.code === "ENOENT"
-          ? "未找到 openspec 命令"
-          : "openspec 无法正常执行",
+          ? `未找到 ${executable} 命令`
+          : `${executable} 命令无法正常执行`,
     };
   }
 }
@@ -210,26 +210,25 @@ function checkRuntime(projectRoot, homeDir) {
   );
 }
 
-function checkOpenSpecProject(projectRoot) {
-  const root = path.join(projectRoot, "openspec");
-  const required = ["config.yaml", "changes", "specs"];
-  const missing = required.filter((name) => !existsSync(path.join(root, name)));
-  return missing.length === 0
-    ? check("pass", "OpenSpec 项目已初始化", root)
-    : check(
-        "fail",
-        "OpenSpec 项目尚未初始化",
-        `请运行 openspec init；缺少：${missing.join(", ")}`,
-      );
+function checkDirectory(directory, message, detail) {
+  return existsSync(directory)
+    ? check("pass", message, directory)
+    : check("warn", `${message}不存在`, detail);
 }
 
-
-
-function checkRequirements(projectRoot, homeDir) {
-  const requirementsPath = getRequirementsDir(projectRoot, homeDir);
-  return existsSync(requirementsPath)
-    ? check("pass", "需求账本目录已准备")
-    : check("warn", "尚未创建需求账本目录，首次跟踪需求时再创建即可");
+function checkSkills(projectRoot, homeDir) {
+  const openSpec = checkSkill("openspec", "OpenSpec", projectRoot, homeDir);
+  const superpowers = checkSuperpowers(projectRoot, homeDir);
+  const failures = [openSpec, superpowers].filter((item) => item.status === "fail");
+  return failures.length === 0
+    ? check("pass", "OpenSpec / Superpowers 相关技能已发现", {
+        openSpec: openSpec.detail,
+        superpowers: superpowers.detail,
+      })
+    : check("warn", "未完整发现 OpenSpec / Superpowers 相关技能", {
+        openSpec: openSpec.detail ?? openSpec.message,
+        superpowers: superpowers.detail ?? superpowers.message,
+      });
 }
 
 export async function runDoctor(
@@ -239,17 +238,30 @@ export async function runDoctor(
     homeDir = os.homedir(),
   } = {},
 ) {
-  const openSpecResult = commandRunner(projectRoot);
+  const nodeResult = commandRunner(projectRoot, ["node", "-v"]);
+  const openSpecVersion = commandRunner(projectRoot, ["openspec", "--version"]);
+  const openSpecContext = commandRunner(projectRoot, ["openspec", "context", "--json"]);
   const checks = {
-    nodejs: check("pass", `Node.js 已安装（${process.version}）`, process.execPath),
-    runtime: checkRuntime(projectRoot, homeDir),
-    openSpec: openSpecResult.ok
-      ? check("pass", `OpenSpec 可用（${openSpecResult.version ?? "版本未知"}）`)
-      : check("fail", openSpecResult.message ?? "OpenSpec 不可用"),
-    superpowers: checkSuperpowers(projectRoot, homeDir),
-    openSpecSkill: checkSkill("openspec", "OpenSpec", projectRoot, homeDir),
-    openSpecProject: checkOpenSpecProject(projectRoot),
-    requirements: checkRequirements(projectRoot, homeDir),
+    nodejs: nodeResult.ok
+      ? check("pass", "Node.js 可用", nodeResult.output)
+      : check("warn", "Node.js 不可用", nodeResult.message),
+    openSpec: openSpecVersion.ok
+      ? check("pass", "OpenSpec 命令可执行", openSpecVersion.output)
+      : check("warn", "OpenSpec 命令不可执行", openSpecVersion.message),
+    runtime: checkDirectory(
+      path.join(homeDir, ".xiaoqi", "runtime"),
+      "小七运行时目录",
+      "请确认 ~/.xiaoqi/runtime 已由用户手动准备",
+    ),
+    ledger: checkDirectory(
+      getRequirementsDir(projectRoot, homeDir),
+      "小七运行时账本目录",
+      "首次使用需求账本时再创建 ~/.xiaoqi/sprint-manage",
+    ),
+    skills: checkSkills(projectRoot, homeDir),
+    openSpecContext: openSpecContext.ok
+      ? check("pass", "OpenSpec 项目上下文可用", openSpecContext.output)
+      : check("warn", "OpenSpec 项目上下文不可用", openSpecContext.message),
   };
   return {
     ok: Object.values(checks).every((result) => result.status !== "fail"),
@@ -267,8 +279,8 @@ function printReport(result) {
   }
   console.log(
     result.ok
-      ? "\n小七初始化检查通过。"
-      : "\n小七初始化检查未通过，请先处理失败项。",
+      ? "\n环境检查通过。"
+      : "\n环境检查发现提醒，请查看各检查项。", 
   );
 }
 

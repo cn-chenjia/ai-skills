@@ -48,7 +48,8 @@ test("documents the global ledger and multi-repository workflow", async () => {
   const state = await readSkillFile("references/state-contract.md");
   const steps = await readSkillFile("references/step-details.md");
 
-  assert.match(state, /~\/\.xiaoqi\/projects\/<project-id>\/requirements/);
+  assert.match(state, /~\/\.xiaoqi\/sprint-manage\//);
+  assert.match(state, /-v<版本号>\.yaml/);
   assert.match(state, /不创建、不读取\s+`session\.yaml`/);
   assert.match(state, /单个需求可以登记多个仓库/);
   assert.match(steps, /同一用户可以并行推进多个需求/);

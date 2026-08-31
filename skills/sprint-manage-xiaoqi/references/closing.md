@@ -43,7 +43,7 @@ OpenSpec archive 成功后，调用 Superpowers 的
 
 ## 正式关闭
 
-仅当 archive 和 finish 证据都存在，且最终交付状态为 `pr-open | merged | kept` 时，才由主技能调用 `scripts/close-requirement.mjs` 校验证据并写入 `closed` 事件。账本位于 `~/.xiaoqi/projects/<project-id>/requirements/<id>.yaml`，不维护 session 文件。真实流程和交付状态仍以账本为准，不能只在对话或总结中宣称需求已关闭。
+仅当 archive 和 finish 证据都存在，且最终交付状态为 `pr-open | merged | kept` 时，才由主技能调用 `scripts/close-requirement.mjs` 校验证据并写入 `closed` 事件。账本位于 `~/.xiaoqi/sprint-manage/<requirement-id>-v<版本号>.yaml`，不维护 session 文件。真实流程和交付状态仍以账本为准，不能只在对话或总结中宣称需求已关闭。已关闭版本发现后续问题时，创建新版本，不重新打开原账本。
 
 ## 关闭整个迭代
 

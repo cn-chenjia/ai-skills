@@ -382,7 +382,8 @@ test("keeps ledger and collaboration details in their focused references", async
     skill,
     /新建、恢复、查看需求；账本或状态问题[\s\S]*references\/state-contract\.md/,
   );
-  assert.match(state, /~\/\.xiaoqi\/projects\/<project-id>\/requirements/);
+  assert.match(state, /~\/\.xiaoqi\/sprint-manage\//);
+  assert.match(state, /-v1\.yaml/);
   assert.match(state, /账本锁与版本/);
   assert.match(state, /ledger-lock\.mjs/);
   assert.match(state, /不创建、不读取 `session\.yaml`/);

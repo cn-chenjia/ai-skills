@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import { runDoctor } from "../scripts/doctor.mjs";
+
+test("环境检查只检查六项基础依赖并使用新的全局目录", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-doctor-"));
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-home-"));
+  await mkdir(path.join(homeDir, ".xiaoqi", "runtime"), { recursive: true });
+  await mkdir(path.join(homeDir, ".xiaoqi", "sprint-manage"), { recursive: true });
+
+  const commands = [];
+  const result = await runDoctor(projectRoot, {
+    homeDir,
+    commandRunner: (cwd, args) => {
+      commands.push({ cwd, args });
+      if (args.join(" ") === "node -v") return { ok: true, version: "v22.0.0" };
+      if (args.join(" ") === "openspec --version") return { ok: true, version: "1.0.0" };
+      if (args.join(" ") === "openspec context --json") return { ok: true, context: {} };
+      return { ok: false, message: "unexpected command" };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(Object.keys(result.checks), [
+    "nodejs",
+    "openSpec",
+    "runtime",
+    "ledger",
+    "skills",
+    "openSpecContext",
+  ]);
+  assert.deepEqual(commands.map(({ args }) => args.join(" ")), [
+    "node -v",
+    "openspec --version",
+    "openspec context --json",
+  ]);
+  assert.equal(result.checks.ledger.status, "pass");
+});

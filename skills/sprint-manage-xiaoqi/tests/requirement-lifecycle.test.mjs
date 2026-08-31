@@ -20,9 +20,11 @@ const initializeScript = path.join(
 const closeScript = path.join(skillDir, "scripts", "close-requirement.mjs");
 
 function runScript(script, args, cwd) {
+  const homeDir = path.join(cwd, ".test-home");
   return spawnSync(process.execPath, [script, ...args], {
     cwd,
     encoding: "utf8",
+    env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir },
   });
 }
 
@@ -45,10 +47,14 @@ test("initializes the first tracked requirement before implementation", async ()
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
   const ledgerPath = JSON.parse(result.stdout).ledger;
-  assert.equal(ledgerPath, getRequirementPath(projectRoot, "story-66102"));
+  assert.equal(
+    ledgerPath,
+    getRequirementPath(projectRoot, "story-66102", path.join(projectRoot, ".test-home")),
+  );
   assert.equal(path.resolve(output.ledger), ledgerPath);
   assert.equal(output.recommendedNext, "apply");
   assert.equal(existsSync(ledgerPath), true);
+  assert.equal(output.ledger, ledgerPath);
 
   const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
   assert.equal(ledger.schema_version, 4);
@@ -56,15 +62,14 @@ test("initializes the first tracked requirement before implementation", async ()
   assert.equal(ledger.change_id, "story-66102-special-operation-review");
   assert.equal(ledger.流程状态, "active");
   assert.equal(ledger.交付状态, "not-started");
-  assert.equal(ledger.推荐动作, "apply");
+  assert.equal(ledger.推荐动作, "prepare-workspace");
   assert.deepEqual(ledger.协作, { 模式: "single", 负责人: "alice" });
+  assert.equal(ledger.用户决策.at(-1).kind, "requirement-intake");
+  assert.equal(ledger.用户决策.at(-1).outcome, "accepted");
+  assert.equal(ledger.用户决策.some((decision) => decision.kind === "proposal-confirmation"), false);
   assert.deepEqual(ledger.仓库, [
     { id: "main", root: projectRoot, branch: null, worktree: null },
   ]);
-  assert.equal(ledger.用户决策.at(-1).kind, "proposal-confirmation");
-  assert.equal(ledger.用户决策.at(-1).outcome, "approved");
-  assert.equal(ledger.用户决策.at(-1).actor, "requester");
-
   assert.equal(existsSync(path.join(projectRoot, "sprint-manage")), false);
 });
 

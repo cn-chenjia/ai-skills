@@ -6,16 +6,16 @@
 
 ```text
 ~/.xiaoqi/
-  projects/
-    <project-id>/
-      requirements/
-        <id>.yaml
+  runtime/
+  sprint-manage/
+    <requirement-id>-v<版本号>.yaml
 ```
 
-- `<project-id>` 由项目根目录绝对路径稳定计算；同一项目的所有需求共用该全局账本目录。
-- 每个需求一个 `<id>.yaml`，账本不随 branch、worktree 或仓库副本移动，也不写入项目仓库。
+- 所有项目共用 `~/.xiaoqi/sprint-manage/` 全局账本目录，需求编号必须全局唯一。
+- 每个需求版本使用 `<requirement-id>-v<版本号>.yaml`，账本不随 branch、worktree 或仓库副本移动，也不写入项目仓库。
+- 已关闭版本发现后续问题时创建新版本，不重新打开原账本。
 - 不创建、不读取 `session.yaml`；当前需求、多个需求的并行推进和单需求的多个仓库均由全局账本及当前请求明确表达。
-- 账本目录可由运行时统一创建；旧项目账本迁移后保留原事实，不回写仓库内的 `sprint-manage/requirements/`。
+- 账本目录可由运行时统一创建。
 
 ## 账本锁与版本
 
@@ -87,7 +87,7 @@ OpenSpec快照:
 事件日志: []
 ```
 
-`仓库` 至少包含一个条目；单个需求可以登记多个仓库，每个条目必须有稳定的 `id` 和可定位的 `root`，branch/worktree 在进入实施前补齐。不同需求不得复用同一 branch 或 worktree；依赖需求、冲突键和影响范围用于目录级事实校验。
+`仓库` 至少包含一个条目；单个需求可以登记多个仓库，每个条目必须有稳定的 `id` 和可定位的 `root`，branch/worktree 在进入实施前补齐。每个需求必须使用独立的 branch 和 `.worktrees/<需求编号>` worktree，不得复用当前工作区；不同需求不得复用同一 branch 或 worktree。依赖需求、冲突键和影响范围用于目录级事实校验。
 
 ## 状态和闭环
 
@@ -110,15 +110,15 @@ pr-open | merged | kept
 
 ```bash
 node scripts/validate-progress.mjs \
-  "$HOME/.xiaoqi/projects/<project-id>/requirements/story-2000.yaml"
+  "$HOME/.xiaoqi/sprint-manage/story-2000-v1.yaml"
 
 node scripts/validate-progress.mjs \
-  "$HOME/.xiaoqi/projects/<project-id>/requirements"
+  "$HOME/.xiaoqi/sprint-manage"
 
 node scripts/ledger-lock.mjs acquire \
-  "$HOME/.xiaoqi/projects/<project-id>/requirements/story-2000.yaml" requester
+  "$HOME/.xiaoqi/sprint-manage/story-2000-v1.yaml" requester
 node scripts/ledger-lock.mjs commit \
-  "$HOME/.xiaoqi/projects/<project-id>/requirements/story-2000.yaml" <token>
+  "$HOME/.xiaoqi/sprint-manage/story-2000-v1.yaml" <token>
 ```
 
 校验失败时不得覆盖账本。状态推进统一使用 `advance-progress.mjs`，证据记录统一使用 `record-evidence.mjs`；不得手工推进交付状态。
@@ -126,7 +126,7 @@ node scripts/ledger-lock.mjs commit \
 状态迁移：
 
 ```text
-not-started -> coding -> verified -> reviewed -> ready
+not-started -> coding -> verified -> reviewed -> ready（进入 `coding` 前必须存在 `proposal-confirmation: approved`、`implementation-start: approved`，以及所有仓库已登记的 branch/worktree）
 ready -> pr-open | merged | kept
 ```
 
@@ -136,7 +136,7 @@ ready -> pr-open | merged | kept
 
 ## 首次建账
 
-精确识别项目根目录、需求编号、名称、`change_id` 和负责人后，在 proposal 得到用户确认时执行：
+精确识别项目根目录、需求编号、名称、`change_id` 和负责人后，在需求接纳时执行；此时只记录 `requirement-intake: accepted`，不提前记录方案确认：
 
 ```bash
 node "<小七技能安装目录>/scripts/initialize-requirement.mjs" \
@@ -144,7 +144,7 @@ node "<小七技能安装目录>/scripts/initialize-requirement.mjs" \
   story-1001-order-refactor requester requester
 ```
 
-脚本将账本写入 `~/.xiaoqi/projects/<project-id>/requirements/story-1001.yaml`，不会创建 session 文件，也不会覆盖已有账本。没有确认记录、账本或仓库记录时，不得进入 `coding`。
+脚本将账本写入 `~/.xiaoqi/sprint-manage/story-1001-v1.yaml`，不会创建 session 文件，也不会覆盖已有账本。后续变更创建新的版本文件，不重新打开已关闭版本。没有需求接纳记录、账本或仓库记录时，不得进入 `coding`；没有方案确认记录时，不得进入 `coding`。工作区准备必须先于 OpenSpec artifacts 生成。
 
 ## 迁移
 

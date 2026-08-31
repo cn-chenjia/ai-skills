@@ -73,10 +73,32 @@ test("routes ambiguous or high-risk requests to explore", () => {
   assert.ok(result.reasons.length >= 2);
 });
 
-test("resolves the next evidence gate from the delivery status", () => {
-  assert.deepEqual(resolveNextAction({ 交付状态: "not-started" }), {
+test("waits for implementation approval after the workspace is prepared", () => {
+  const base = {
+    交付状态: "not-started",
+    用户决策: [
+      { kind: "proposal-confirmation", outcome: "approved" },
+    ],
+    仓库: [{ id: "main", root: ".", branch: "feature/story-1001", worktree: ".worktrees/story-1001" }],
+  };
+
+  assert.deepEqual(resolveNextAction(base), null);
+  assert.deepEqual(resolveNextAction({
+    ...base,
+    用户决策: [
+      ...base.用户决策,
+      { kind: "implementation-start", outcome: "approved" },
+    ],
+  }), {
     name: "apply",
     targetStatus: "coding",
+  });
+});
+
+test("resolves the next evidence gate from the delivery status", () => {
+  assert.deepEqual(resolveNextAction({ 交付状态: "not-started" }), {
+    name: "prepare-workspace",
+    targetStatus: "not-started",
   });
   assert.deepEqual(resolveNextAction({ 交付状态: "coding" }), {
     name: "check",
@@ -97,7 +119,10 @@ test("starts apply through the automation executor instead of manual stepping", 
   const ledgerPath = await createLedger();
   const calls = [];
   const source = await readFile(ledgerPath, "utf8");
-  await writeFile(ledgerPath, source.replace("交付状态: coding", "交付状态: not-started"));
+  await writeFile(ledgerPath, source
+    .replace("交付状态: coding", "交付状态: not-started")
+    .replace("推荐动作: apply", "推荐动作: apply")
+    .replace("  - kind: proposal-confirmation\n    outcome: approved", "  - kind: proposal-confirmation\n    outcome: approved\n  - kind: implementation-start\n    outcome: approved"));
 
   const result = await runUntilReady({
     ledgerPath,

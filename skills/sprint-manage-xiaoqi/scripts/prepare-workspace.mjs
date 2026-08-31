@@ -19,10 +19,7 @@ import {
   releaseLedgerLock,
 } from "./ledger-lock.mjs";
 import { serializeProgressYaml } from "./advance-progress.mjs";
-import {
-  hasApprovedProposal,
-  parseProgressYaml,
-} from "./validate-progress.mjs";
+import { parseProgressYaml } from "./validate-progress.mjs";
 import { getRequirementsDir } from "./ledger-paths.mjs";
 
 function runGit(cwd, args, { allowFailure = false } = {}) {
@@ -199,6 +196,8 @@ function updateLedger(ledgerPath, owner, collaboration, repositories) {
       负责人: collaboration.负责人,
     };
     if (repositories) next.仓库 = repositories;
+    next.当前意图 = "在新工作区生成 OpenSpec 工件";
+    next.推荐动作 = "propose";
     writeFileSync(ledgerPath, serializeProgressYaml(next), "utf8");
     commitLedgerLock(ledgerPath, lock.token);
   } catch (error) {
@@ -228,60 +227,25 @@ function prepareWorkspace(ledgerPath, projectRoot, owner, repository, document) 
   if (document.协作?.负责人 !== owner) {
     throw new Error(`只有需求负责人可以准备工作区: ${document.协作?.负责人}`);
   }
-  if (!hasApprovedProposal(document)) {
-    throw new Error("方案尚未确认，不能准备需求分支和工作区");
-  }
-
   const baseBranch = detectBaseBranch(root, repository?.baseBranch);
   const branch = buildBranchName(document, root, repository);
   validateBranchName(root, branch);
-  const currentBranch = gitOutput(root, ["branch", "--show-current"]);
-
-  // 检测当前分支与账本规划不一致时，若当前分支既非基线也非规划分支，给出明确提示
-  if (
-    currentBranch !== branch &&
-    currentBranch !== baseBranch &&
-    !repository?.branch
-  ) {
-    console.warn(
-      `[提示] 当前在分支 ${currentBranch}，账本规划使用 ${branch}（从 .xiaoqi/config.yaml 或默认规则生成）。` +
-        `若要使用当前分支，请在账本 仓库[].branch 中显式填写 ${currentBranch}。`,
-    );
+  if (!/^[A-Za-z0-9._-]+$/.test(document.编号)) {
+    throw new Error(`需求编号不能用于工作区目录: ${document.编号}`);
   }
+  const worktree = path.join(root, ".worktrees", document.编号);
+  const registered = listWorktrees(root).find(
+    (item) => item.path && comparablePath(item.path) === comparablePath(worktree),
+  );
+  let mode = "created";
 
-  const occupied = currentWorktreeIsOccupied(ledger, root, currentBranch);
-  let worktree = root;
-  let mode = "current";
-
-  if (occupied) {
-    if (!/^[A-Za-z0-9._-]+$/.test(document.编号)) {
-      throw new Error(`需求编号不能用于工作区目录: ${document.编号}`);
-    }
-    worktree = path.join(root, ".worktrees", document.编号);
-    const registered = listWorktrees(root).find(
-      (item) =>
-        item.path && comparablePath(item.path) === comparablePath(worktree),
-    );
-    if (registered?.branch === branch) {
-      mode = "reused";
-    } else {
-      if (existsSync(worktree)) throw new Error(`目标工作区已存在: ${worktree}`);
-      if (branchExists(root, branch)) throw new Error(`需求分支已存在但未绑定: ${branch}`);
-      mkdirSync(path.dirname(worktree), { recursive: true });
-      runGit(root, ["worktree", "add", "-b", branch, worktree, baseBranch]);
-      mode = "created";
-    }
-  } else if (currentBranch !== branch) {
-    if (hasBlockingChanges(root)) {
-      throw new Error(
-        "当前工作区存在未提交修改，不能安全切换到需求分支；请先提交或暂存修改，或在账本仓库[].branch中预填当前分支以直接登记当前工作区",
-      );
-    }
-    if (branchExists(root, branch)) {
-      runGit(root, ["checkout", branch]);
-    } else {
-      runGit(root, ["checkout", "-b", branch, baseBranch]);
-    }
+  if (registered?.branch === branch) {
+    mode = "reused";
+  } else {
+    if (existsSync(worktree)) throw new Error(`目标工作区已存在: ${worktree}`);
+    if (branchExists(root, branch)) throw new Error(`需求分支已存在但未绑定: ${branch}`);
+    mkdirSync(path.dirname(worktree), { recursive: true });
+    runGit(root, ["worktree", "add", "-b", branch, worktree, baseBranch]);
   }
 
   const targetLedger = ledger;
@@ -306,9 +270,6 @@ export function prepareWorkspaces(ledgerPath, projectRoot, owner) {
   }
   if (document.协作?.负责人 !== owner) {
     throw new Error(`只有需求负责人可以准备工作区: ${document.协作?.负责人}`);
-  }
-  if (!hasApprovedProposal(document)) {
-    throw new Error("方案尚未确认，不能准备需求分支和工作区");
   }
   const repositories = document.仓库?.length
     ? document.仓库

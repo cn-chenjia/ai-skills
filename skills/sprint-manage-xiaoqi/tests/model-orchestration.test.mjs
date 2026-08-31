@@ -20,10 +20,11 @@ test("keeps the main skill in control of the Xiaoqi workflow", async () => {
   assert.match(skill, /单个需求可以登记并操作多个仓库/);
   assert.match(skill, /确认并立即实施当前需求/);
   assert.match(skill, /确认并暂停当前需求/);
-  assert.match(skill, /确认并结束本次会话/);
+  assert.doesNotMatch(skill, /确认并结束本次会话/);
   assert.match(skill, /主技能.*唯一.*流程控制权/s);
   assert.match(skill, /一次只读取.*当前动作.*参考文件/s);
   assert.match(skill, /返回主技能.*重新读取真实状态/s);
+  assert.match(skill, /建账.*工作区.*OpenSpec/s);
   assert.match(skill, /ready.*blocked.*closed/s);
   assert.match(skill, /outcome.*summary.*evidence.*blockers.*recommended_next/s);
   assert.doesNotMatch(skill, /generic-hook|trae-hook|codex-hook|lifecycle|guarded-run|host-rules|install-host-rules|install-codex-integration|event-contract|command-safety/);

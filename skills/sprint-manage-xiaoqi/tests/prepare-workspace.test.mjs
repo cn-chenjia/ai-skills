@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +14,9 @@ import {
 import { prepareWorkspaces } from "../scripts/prepare-workspace.mjs";
 import { getRequirementPath } from "../scripts/ledger-paths.mjs";
 
+process.env.USERPROFILE = mkdtempSync(path.join(os.tmpdir(), "xiaoqi-prepare-test-home-"));
+process.env.HOME = process.env.USERPROFILE;
+
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const skillDir = path.resolve(testDir, "..");
 const scriptPath = path.join(skillDir, "scripts", "prepare-workspace.mjs");
@@ -23,6 +26,10 @@ function git(cwd, ...args) {
 }
 
 async function createProject() {
+  rmSync(path.join(process.env.USERPROFILE, ".xiaoqi", "sprint-manage"), {
+    recursive: true,
+    force: true,
+  });
   const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-workspace-"));
   git(projectRoot, "init");
   git(projectRoot, "config", "user.name", "Xiaoqi Test");
@@ -108,7 +115,7 @@ function prepare(ledgerPath, projectRoot) {
   );
 }
 
-test("rejects workspace preparation before the proposal is confirmed", async () => {
+test("prepares the workspace before the proposal is confirmed", async () => {
   const projectRoot = await createProject();
   const ledgerPath = await writeLedger(projectRoot, "story-1000");
   const source = await readFile(ledgerPath, "utf8");
@@ -120,19 +127,20 @@ test("rejects workspace preparation before the proposal is confirmed", async () 
     outcome: approved
     actor: "requester"
     at: "2026-08-19T10:00:00+08:00"`,
-      "用户决策: []",
+      "用户决策:\n  - kind: requirement-intake\n    outcome: accepted\n    actor: \"requester\"\n    at: \"2026-08-19T10:00:00+08:00\"",
     ),
   );
   git(projectRoot, "commit", "--allow-empty", "-m", "add unconfirmed requirement");
 
   const result = prepare(ledgerPath, projectRoot);
 
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /方案尚未确认/);
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
   assert.equal(git(projectRoot, "branch", "--show-current"), "main");
+  assert.equal(git(output.worktree, "branch", "--show-current"), "feature/story-1000");
 });
 
-test("prepares the first coding requirement in the current worktree", async () => {
+test("always prepares the first requirement in an isolated worktree", async () => {
   const projectRoot = await createProject();
   const ledgerPath = await writeLedger(projectRoot, "story-1001");
   git(projectRoot, "commit", "--allow-empty", "-m", "add requirement");
@@ -141,18 +149,35 @@ test("prepares the first coding requirement in the current worktree", async () =
 
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
-  assert.equal(output.mode, "current");
-  assert.equal(path.resolve(output.worktree), projectRoot);
+  const expectedWorktree = path.join(projectRoot, ".worktrees", "story-1001");
+  assert.equal(output.mode, "created");
+  assert.equal(path.resolve(output.worktree), expectedWorktree);
   assert.equal(output.branch, "feature/story-1001");
   assert.equal(output.baseBranch, "main");
-  assert.equal(git(projectRoot, "branch", "--show-current"), "feature/story-1001");
+  assert.equal(git(projectRoot, "branch", "--show-current"), "main");
+  assert.equal(git(expectedWorktree, "branch", "--show-current"), "feature/story-1001");
 
   const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
   assert.deepEqual(ledger.协作, { 模式: "single", 负责人: "alice" });
   assert.equal(ledger.仓库[0].baseBranch, "main");
   assert.equal(ledger.仓库[0].branch, "feature/story-1001");
-  assert.equal(ledger.仓库[0].worktree, ".");
+  assert.equal(ledger.仓库[0].worktree, path.join(".worktrees", "story-1001"));
   assert.equal(ledger.交付状态, "not-started");
+});
+
+test("creates an isolated worktree even when the current worktree is dirty", async () => {
+  const projectRoot = await createProject();
+  const ledgerPath = await writeLedger(projectRoot, "story-1000");
+  await writeFile(path.join(projectRoot, "local-change.txt"), "keep me\n");
+
+  const result = prepare(ledgerPath, projectRoot);
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.mode, "created");
+  assert.equal(git(projectRoot, "branch", "--show-current"), "main");
+  assert.equal(git(output.worktree, "branch", "--show-current"), "feature/story-1000");
+  assert.equal(existsSync(path.join(projectRoot, "local-change.txt")), true);
 });
 
 test("creates a separate worktree for a second coding requirement", async () => {
@@ -250,12 +275,13 @@ test("prepares a single top-level repository entry", async () => {
 
   const result = await prepareWorkspaces(ledgerPath, projectRoot, "alice");
 
+  rmSync(path.join(projectRoot, ".test-home"), { recursive: true, force: true });
   assert.equal(result.repositories.length, 1);
   assert.equal(result.repositories[0].branch, "feature/story-2001");
   const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
   assert.equal(ledger.仓库[0].root, ".");
   assert.equal(ledger.仓库[0].branch, "feature/story-2001");
-  assert.equal(ledger.仓库[0].worktree, ".");
+  assert.equal(ledger.仓库[0].worktree, path.join(".worktrees", "story-2001"));
 });
 
 test("prepares every repository and writes branches back to one global ledger", async () => {
@@ -269,8 +295,10 @@ test("prepares every repository and writes branches back to one global ledger", 
   const result = await prepareWorkspaces(ledgerPath, projectRoot, "alice");
 
   assert.deepEqual(result.repositories.map((repo) => repo.id), ["main", "secondary"]);
-  assert.equal(git(projectRoot, "branch", "--show-current"), "feature/story-2002");
-  assert.equal(git(secondaryRoot, "branch", "--show-current"), "feature/story-2002-secondary");
+  assert.equal(git(projectRoot, "branch", "--show-current"), "main");
+  assert.equal(git(secondaryRoot, "branch", "--show-current"), "main");
+  assert.equal(git(result.repositories[0].worktree, "branch", "--show-current"), "feature/story-2002");
+  assert.equal(git(result.repositories[1].worktree, "branch", "--show-current"), "feature/story-2002-secondary");
   const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
   assert.equal(ledger.仓库[0].branch, "feature/story-2002");
   assert.equal(ledger.仓库[1].branch, "feature/story-2002-secondary");
@@ -278,7 +306,7 @@ test("prepares every repository and writes branches back to one global ledger", 
   assert.equal(existsSync(path.join(projectRoot, "sprint-manage", "local", "session.yaml")), false);
 });
 
-test("does not switch the current worktree when it has uncommitted changes", async () => {
+test("keeps the current worktree untouched when it has uncommitted changes", async () => {
   const projectRoot = await createProject();
   const ledgerPath = await writeLedger(projectRoot, "story-1001");
   git(projectRoot, "commit", "--allow-empty", "-m", "add requirement");
@@ -286,13 +314,15 @@ test("does not switch the current worktree when it has uncommitted changes", asy
 
   const result = prepare(ledgerPath, projectRoot);
 
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /未提交修改/);
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
   assert.equal(git(projectRoot, "branch", "--show-current"), "main");
+  assert.equal(git(output.worktree, "branch", "--show-current"), "feature/story-1001");
+  assert.equal(await readFile(path.join(projectRoot, "README.md"), "utf8"), "uncommitted\n");
   const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
   assert.equal(ledger.协作.模式, "single");
   assert.equal(ledger.协作.负责人, "alice");
-  assert.equal(ledger.仓库[0].branch, null);
-  assert.equal(ledger.仓库[0].worktree, null);
-  assert.equal(ledger.仓库[0].baseBranch, null);
+  assert.equal(ledger.仓库[0].branch, "feature/story-1001");
+  assert.equal(ledger.仓库[0].worktree, path.join(".worktrees", "story-1001"));
+  assert.equal(ledger.仓库[0].baseBranch, "main");
 });

@@ -21,6 +21,7 @@ const COLLABORATION_MODE_VALUES = new Set(["single", "independent"]);
 const ACTION_VALUES = new Set([
   "explore",
   "propose",
+  "prepare-workspace",
   "apply",
   "update",
   "verify",
@@ -697,7 +698,9 @@ export function validateProgressDirectory(directoryPath) {
   const activeConflictKeys = new Map();
   const identifierOwners = new Map();
   const changeOwners = new Map();
-  const identifiers = new Set(entries.map(({ document }) => document.编号));
+  const identifiers = new Set(
+    entries.map(({ document }) => document.编号).filter(hasText),
+  );
   const requirementDependencies = new Map();
   const activeScopes = [];
 

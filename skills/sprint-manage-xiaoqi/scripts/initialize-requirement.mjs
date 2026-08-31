@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -36,6 +37,17 @@ function validateRequirementId(requirementId) {
   }
 }
 
+function getLedgerVersions(requirementsDir, requirementId) {
+  const prefix = `${requirementId}-v`;
+  return readdirSync(requirementsDir)
+    .map((name) => {
+      const match = name.match(new RegExp(`^${prefix}(\\d+)\\.ya?ml$`));
+      return match ? { version: Number(match[1]), name } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.version - a.version);
+}
+
 function ensureIgnoreRules(projectRoot) {
   const ignorePath = path.join(projectRoot, ".gitignore");
   const source = existsSync(ignorePath) ? readFileSync(ignorePath, "utf8") : "";
@@ -46,12 +58,14 @@ function ensureIgnoreRules(projectRoot) {
   writeFileSync(ignorePath, `${source}${prefix}${missing.join("\n")}\n`, "utf8");
 }
 
-function newLedger(projectRoot, requirementId, name, changeId, owner, confirmedBy) {
+function newLedger(projectRoot, requirementId, name, changeId, owner, confirmedBy, version, previousVersion = null) {
   const now = new Date().toISOString();
   return {
     schema_version: 4,
     document_type: "requirement",
     编号: requirementId,
+    版本: version,
+    前序版本: previousVersion,
     名称: name,
     change_id: changeId,
     revision: 1,
@@ -60,7 +74,7 @@ function newLedger(projectRoot, requirementId, name, changeId, owner, confirmedB
     流程状态: "active",
     交付状态: "not-started",
     当前意图: "准备实施",
-    推荐动作: "apply",
+    推荐动作: "prepare-workspace",
     协作: {
       模式: "single",
       负责人: owner,
@@ -88,8 +102,8 @@ function newLedger(projectRoot, requirementId, name, changeId, owner, confirmedB
     },
     用户决策: [
       {
-        kind: "proposal-confirmation",
-        outcome: "approved",
+        kind: "requirement-intake",
+        outcome: "accepted",
         actor: confirmedBy,
         at: now,
       },
@@ -124,6 +138,10 @@ function ensureProposalConfirmation(
 ) {
   const initial = parseProgressYaml(readFileSync(ledgerPath, "utf8"));
   assertExistingMatches(initial, requirementId, changeId, owner);
+  const decisions = Array.isArray(initial.用户决策) ? initial.用户决策 : [];
+  if (decisions.some((decision) => decision?.kind === "requirement-intake")) {
+    return false;
+  }
   if (
     hasApprovedProposal(initial) &&
     (initial.交付状态 !== "not-started" || initial.推荐动作 === "apply")
@@ -158,7 +176,10 @@ function ensureProposalConfirmation(
       });
       document.用户决策 = decisions;
     }
-    if (document.交付状态 === "not-started") {
+    if (
+      document.交付状态 === "not-started" &&
+      document.推荐动作 !== "apply"
+    ) {
       document.当前意图 = "准备实施";
       document.推荐动作 = "apply";
     }
@@ -233,21 +254,32 @@ export function initializeRequirement(
   validateRequirementId(requirementId);
 
   const requirementsDir = getRequirementsDir(root);
-  const ledgerPath = getRequirementPath(root, requirementId);
   mkdirSync(requirementsDir, { recursive: true });
   ensureIgnoreRules(root);
-
-  if (existsSync(ledgerPath)) {
-    return existingLedgerResult(
-      root,
-      ledgerPath,
-      requirementId,
-      changeId,
-      owner,
-      confirmedBy,
-    );
+  const existingVersions = getLedgerVersions(requirementsDir, requirementId);
+  for (const existingVersion of existingVersions) {
+    const candidatePath = path.join(requirementsDir, existingVersion.name);
+    const candidate = parseProgressYaml(readFileSync(candidatePath, "utf8"));
+    if (
+      candidate.change_id === changeId &&
+      candidate.协作?.负责人 === owner
+    ) {
+      return existingLedgerResult(
+        root,
+        candidatePath,
+        requirementId,
+        changeId,
+        owner,
+        confirmedBy,
+      );
+    }
   }
+  const version = existingVersions.length > 0 ? existingVersions[0].version + 1 : 1;
+  const ledgerPath = getRequirementPath(root, requirementId, undefined, version);
 
+  const previousVersion = existingVersions[0]
+    ? path.join(requirementsDir, existingVersions[0].name)
+    : null;
   const document = newLedger(
     root,
     requirementId,
@@ -255,6 +287,8 @@ export function initializeRequirement(
     changeId,
     owner,
     confirmedBy,
+    version,
+    previousVersion,
   );
   const issues = validateProgress(document);
   if (issues.length > 0) {

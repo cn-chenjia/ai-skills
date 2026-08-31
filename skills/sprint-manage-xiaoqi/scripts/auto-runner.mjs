@@ -158,6 +158,18 @@ export async function runUntilReady({
         repairs,
       };
     }
+    if (action.name === "prepare-workspace") {
+      return protocolResult({
+        status: "needs-confirmation",
+        outcome: "needs-confirmation",
+        summary: "需求已建账，需先由主技能准备需求工作区",
+        blockers: ["workspace-not-prepared"],
+        recommended_next: "prepare-workspace",
+        action: action.name,
+        steps,
+        repairs,
+      });
+    }
 
     let result;
     for (;;) {
