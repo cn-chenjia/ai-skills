@@ -95,6 +95,18 @@ export function validateEvidence(evidence, targetStatus) {
     );
   }
 
+  if (kind === "apply" && evidence.tdd) {
+    const tdd = evidence.tdd;
+    const validPhase = (phase, exitCode, result) =>
+      phase && phase.command && phase.exit_code === exitCode && phase.result === result && phase.summary;
+    if (tdd.enabled !== true || !validPhase(tdd.red, 1, "failed") || !validPhase(tdd.green, 0, "passed")) {
+      throw new Error("apply 的 TDD 证据必须包含有效的 red 和 green 阶段");
+    }
+    if (tdd.refactor && !validPhase(tdd.refactor, 0, "passed")) {
+      throw new Error("apply 的 TDD refactor 阶段必须成功并标记 passed");
+    }
+  }
+
   // review 的 result 约束
   if (schema.resultMustBe && evidence.result !== schema.resultMustBe) {
     throw new Error(
@@ -245,12 +257,18 @@ function attachEvidence(document, evidence) {
 
   if (evidence.kind === "apply") {
     next.apply = evidence;
-    if (Array.isArray(document.任务映射) && Array.isArray(evidence.completed_tasks)) {
-      document.任务映射 = document.任务映射.map((task) =>
-        evidence.completed_tasks.includes(task.id)
-          ? { ...task, status: "completed" }
-          : task,
+    if (Array.isArray(document.任务映射)) {
+      const tddByTask = new Map(
+        (Array.isArray(evidence.tdd_tasks) ? evidence.tdd_tasks : [])
+          .map((item) => [item.task_id, item.tdd]),
       );
+      document.任务映射 = document.任务映射.map((task) => {
+        const nextTask = Array.isArray(evidence.completed_tasks) && evidence.completed_tasks.includes(task.id)
+          ? { ...task, status: "completed" }
+          : task;
+        const tdd = tddByTask.get(task.id);
+        return tdd ? { ...nextTask, tdd } : nextTask;
+      });
     }
   } else if (evidence.kind === "check") {
     next.checks = Array.isArray(next.checks) ? next.checks : [];

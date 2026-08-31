@@ -404,6 +404,16 @@ function isSuccessfulApplyEvidence(evidence) {
   );
 }
 
+function tddPhaseValid(phase, expectedExitCode, expectedResult) {
+  return (
+    phase &&
+    hasText(phase.command) &&
+    phase.exit_code === expectedExitCode &&
+    phase.result === expectedResult &&
+    hasText(phase.summary)
+  );
+}
+
 function taskMappingIssues(document) {
   const issues = [];
   if (!Object.hasOwn(document, "任务映射")) return issues;
@@ -421,6 +431,18 @@ function taskMappingIssues(document) {
     }
     if (!["pending", "completed"].includes(task?.status)) {
       addIssue(issues, "invalid-task-status", `${issuePath}.status`, "任务状态必须为 pending 或 completed");
+    }
+    const tdd = task?.tdd;
+    if (tdd?.enabled === true) {
+      if (!tddPhaseValid(tdd.red, 1, "failed")) {
+        addIssue(issues, "invalid-tdd-red", `${issuePath}.tdd.red`, "TDD red 阶段必须以失败退出并标记 failed");
+      }
+      if (!tddPhaseValid(tdd.green, 0, "passed")) {
+        addIssue(issues, "invalid-tdd-green", `${issuePath}.tdd.green`, "TDD green 阶段必须成功并标记 passed");
+      }
+      if (tdd.refactor && !tddPhaseValid(tdd.refactor, 0, "passed")) {
+        addIssue(issues, "invalid-tdd-refactor", `${issuePath}.tdd.refactor`, "TDD refactor 阶段必须成功并标记 passed");
+      }
     }
   }
   const completedTasks = document.证据索引?.apply?.completed_tasks ?? [];
@@ -638,6 +660,9 @@ export function validateProgress(document) {
 
   validateEnum(issues, document.流程状态, WORKFLOW_STATUS_VALUES, "invalid-workflow-status", "流程状态", "流程状态");
   validateEnum(issues, document.交付状态, DELIVERY_STATUS_VALUES, "invalid-delivery-status", "交付状态", "交付状态");
+  if (document.交付状态 === "verified" && !hasCompletedTaskMapping(document)) {
+    addIssue(issues, "incomplete-task-mapping", "任务映射", "进入 verified 前所有已登记 task 必须完成");
+  }
   if (document.交付状态 !== "not-started" &&
     !hasApprovedProposal(document)
   ) {

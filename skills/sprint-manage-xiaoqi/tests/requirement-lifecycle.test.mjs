@@ -142,7 +142,7 @@ test("closes a requirement only after archive and finish evidence exist", async 
     .replace("交付状态: coding", "交付状态: kept")
     .replace(
       "  archive:\n    outcome: pending\n    path: null",
-      '  archive:\n    outcome: completed\n    path: "openspec/changes/archive/story-1001"',
+      '  archive:\n    kind: "archive"\n    command: "openspec archive"\n    exit_code: 0\n    checked_at: "2026-08-20T10:00:00+08:00"\n    outcome: completed\n    path: "openspec/changes/archive/story-1001"',
     )
     .replace(
       "  finish:\n    outcome: pending\n    result: null\n    summary: null",
@@ -192,6 +192,48 @@ test("does not create or update a local session when closing a requirement", asy
     await readFile(path.join(directory, "sprint-manage", "local", "session.yaml"), "utf8"),
     /会话状态: "closed"/,
   );
+});
+
+test("rejects archive evidence without a successful exit code", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-close-invalid-archive-"));
+  const ledgerPath = path.join(directory, "story-1001.yaml");
+  const source = (await readFile(path.join(testDir, "fixtures", "valid-single.yaml"), "utf8"))
+    .replace("交付状态: coding", "交付状态: kept")
+    .replace(
+      "  archive:\n    outcome: pending\n    path: null",
+      '  archive:\n    kind: "archive"\n    command: "openspec archive"\n    exit_code: 1\n    checked_at: "2026-08-20T10:00:00+08:00"\n    outcome: completed\n    path: "openspec/changes/archive/story-1001"',
+    )
+    .replace(
+      "  finish:\n    outcome: pending\n    result: null\n    summary: null",
+      '  finish:\n    kind: "finish"\n    command: "git status"\n    exit_code: 0\n    commit: "abc123"\n    checked_at: "2026-08-20T10:00:00+08:00"\n    outcome: completed\n    result: kept\n    summary: "本地保留"',
+    );
+  await writeFile(ledgerPath, source);
+
+  const result = runScript(closeScript, [ledgerPath, "alice"], directory);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /close-not-ready|missing-archive-evidence/);
+});
+
+test("rejects finish evidence whose result disagrees with delivery state", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-close-invalid-finish-"));
+  const ledgerPath = path.join(directory, "story-1001.yaml");
+  const source = (await readFile(path.join(testDir, "fixtures", "valid-single.yaml"), "utf8"))
+    .replace("交付状态: coding", "交付状态: kept")
+    .replace(
+      "  archive:\n    outcome: pending\n    path: null",
+      '  archive:\n    kind: "archive"\n    command: "openspec archive"\n    exit_code: 0\n    checked_at: "2026-08-20T10:00:00+08:00"\n    outcome: completed\n    path: "openspec/changes/archive/story-1001"',
+    )
+    .replace(
+      "  finish:\n    outcome: pending\n    result: null\n    summary: null",
+      '  finish:\n    kind: "finish"\n    command: "git status"\n    exit_code: 0\n    commit: "abc123"\n    checked_at: "2026-08-20T10:00:00+08:00"\n    outcome: completed\n    result: merged\n    summary: "已合并"',
+    );
+  await writeFile(ledgerPath, source);
+
+  const result = runScript(closeScript, [ledgerPath, "alice"], directory);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /close-not-ready|closed-delivery-mismatch/);
 });
 
 test("keeps the workflow active when close evidence is incomplete", async () => {

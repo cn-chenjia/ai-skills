@@ -34,6 +34,62 @@ async function issueCodes(name) {
   return new Set(validateProgress(await fixture(name)).map((issue) => issue.code));
 }
 
+test("accepts complete TDD evidence for a mapped task", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.任务映射 = [{
+    id: "task-1",
+    status: "completed",
+    tdd: {
+      enabled: true,
+      red: { command: "npm test", exit_code: 1, result: "failed", summary: "测试先失败" },
+      green: { command: "npm test", exit_code: 0, result: "passed", summary: "实现后通过" },
+    },
+  }];
+  assert.deepEqual(validateProgress(document), []);
+});
+
+test("rejects enabled TDD evidence without a failed red phase", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.任务映射 = [{
+    id: "task-1",
+    status: "pending",
+    tdd: {
+      enabled: true,
+      red: { command: "npm test", exit_code: 0, result: "passed", summary: "错误的 red" },
+      green: { command: "npm test", exit_code: 0, result: "passed", summary: "通过" },
+    },
+  }];
+  const codes = new Set(validateProgress(document).map((issue) => issue.code));
+  assert(codes.has("invalid-tdd-red"));
+});
+
+test("maps TDD evidence from apply onto the completed task", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-tdd-map-"));
+  const file = path.join(directory, "story-1001.yaml");
+  const source = (await fixtureSource("valid-single.yaml"))
+    .replace("交付状态: coding", "交付状态: not-started")
+    .replace("证据索引:\n", "任务映射:\n  - id: task-1\n    status: pending\n证据索引:\n");
+  await writeFile(file, source);
+  advanceProgress(file, "coding", {
+    kind: "apply",
+    command: "apply task-1",
+    exit_code: 0,
+    checked_at: "2026-08-20T10:00:00+08:00",
+    summary: "task-1 完成",
+    completed_tasks: ["task-1"],
+    tdd_tasks: [{
+      task_id: "task-1",
+      tdd: {
+        enabled: true,
+        red: { command: "npm test", exit_code: 1, result: "failed", summary: "先失败" },
+        green: { command: "npm test", exit_code: 0, result: "passed", summary: "后通过" },
+      },
+    }],
+  }, "alice");
+  const advanced = parseProgressYaml(await readFile(file, "utf8"));
+  assert.equal(advanced.任务映射[0].tdd.enabled, true);
+});
+
 test("accepts a task completion mapping on the requirement ledger", async () => {
   const document = await fixture("valid-single.yaml");
   document.任务映射 = [

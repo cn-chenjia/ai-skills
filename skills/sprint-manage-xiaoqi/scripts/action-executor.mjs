@@ -91,6 +91,9 @@ export function createCommandExecutor({
       ...(action.name === "apply" && Array.isArray(config.completed_tasks)
         ? { completed_tasks: config.completed_tasks }
         : {}),
+      ...(action.name === "apply" && Array.isArray(config.tdd_tasks)
+        ? { tdd_tasks: config.tdd_tasks }
+        : {}),
     };
   };
 }

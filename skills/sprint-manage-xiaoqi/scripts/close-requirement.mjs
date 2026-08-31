@@ -13,6 +13,7 @@ import {
   releaseLedgerLock,
 } from "./ledger-lock.mjs";
 const FINAL_DELIVERY_STATES = new Set(["pr-open", "merged", "kept"]);
+const SUCCESS_OUTCOMES = new Set(["passed", "completed", "archived"]);
 
 function assertRequirementClosable(document) {
   if (document.流程状态 === "closed") {
@@ -23,8 +24,25 @@ function assertRequirementClosable(document) {
   }
   const archive = document.证据索引?.archive;
   const finish = document.证据索引?.finish;
-  if (!FINAL_DELIVERY_STATES.has(document.交付状态) || !archive?.path || !finish?.result) {
-    throw new Error("close-not-ready: 关闭前必须具备最终交付状态、archive 和 finish 证据");
+  if (!FINAL_DELIVERY_STATES.has(document.交付状态)) {
+    throw new Error("close-not-ready: 关闭前必须处于最终交付状态");
+  }
+  if (
+    archive?.kind !== "archive" ||
+    archive.exit_code !== 0 ||
+    !SUCCESS_OUTCOMES.has(archive.outcome) ||
+    typeof archive.path !== "string" ||
+    archive.path.trim() === ""
+  ) {
+    throw new Error("close-not-ready: 关闭前必须具备成功的 archive 证据");
+  }
+  if (
+    finish?.kind !== "finish" ||
+    finish.exit_code !== 0 ||
+    !SUCCESS_OUTCOMES.has(finish.outcome) ||
+    finish.result !== document.交付状态
+  ) {
+    throw new Error("close-not-ready: 关闭前必须具备与交付状态一致的成功 finish 证据");
   }
 }
 import {
