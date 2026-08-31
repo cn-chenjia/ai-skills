@@ -70,6 +70,9 @@ test("keeps post-ready closing rules in one focused reference", async () => {
   assert.match(closing, /finish/);
   assert.match(closing, /close-requirement\.mjs/);
   assert.match(closing, /pr-open \| merged \| kept/);
+  assert.match(closing, /收尾检查顺序/);
+  assert.match(closing, /branch.*worktree.*PR 或 merge/s);
+  assert.match(closing, /选择 `kept` 时/);
 
   assert.doesNotMatch(steps, /^### archive 和 finish$/m);
   assert.doesNotMatch(steps, /^### sync$/m);

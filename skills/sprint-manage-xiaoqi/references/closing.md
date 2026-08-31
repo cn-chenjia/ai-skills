@@ -7,6 +7,16 @@
 项目验证、已批准的评审和 OpenSpec verify 都满足当前风险要求后，才能将交付状态推进到
 `ready`。到达 `ready` 后停止连续执行，返回主技能，等待用户选择收尾方式。
 
+## 收尾检查顺序
+
+进入收尾前依次确认：
+
+1. 项目测试、构建和静态检查通过；
+2. code review 已批准；
+3. OpenSpec verify 已通过；
+4. 多仓库的 branch/worktree 均已登记，且没有分支、工作区或影响范围冲突；
+5. 用户明确选择创建 PR、合并或保留分支。
+
 ## 用户选择
 
 用户选择创建 PR、合并或保留分支后，才继续收尾：
@@ -39,7 +49,7 @@ archive 失败的常见原因和修复：
 
 OpenSpec archive 成功后，调用 Superpowers 的
 `finishing-a-development-branch` 完成 finish。根据用户选择，把真实 finish 结果记录为
-`pr-open | merged | kept`，并保存成功的 finish 证据。
+`pr-open | merged | kept`，并保存成功的 finish 证据。`finish.summary` 至少记录实际 branch、worktree、PR 或 merge 信息，以及是否删除 branch/worktree；选择 `kept` 时还要记录保留对象和后续动作。
 
 ## 正式关闭
 

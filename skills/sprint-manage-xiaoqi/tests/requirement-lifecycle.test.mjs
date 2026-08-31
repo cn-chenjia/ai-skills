@@ -170,7 +170,7 @@ test("does not create or update a local session when closing a requirement", asy
     .replace("交付状态: coding", "交付状态: kept")
     .replace(
       "  archive:\n    outcome: pending\n    path: null",
-      '  archive:\n    outcome: completed\n    path: "openspec/changes/archive/story-1001"',
+      '  archive:\n    kind: "archive"\n    command: "openspec archive"\n    exit_code: 0\n    checked_at: "2026-08-20T10:00:00+08:00"\n    outcome: completed\n    path: "openspec/changes/archive/story-1001"',
     )
     .replace(
       "  finish:\n    outcome: pending\n    result: null\n    summary: null",
@@ -265,7 +265,7 @@ test("rejects closing an already closed requirement again", async () => {
     .replace("交付状态: coding", "交付状态: kept")
     .replace(
       "  archive:\n    outcome: pending\n    path: null",
-      '  archive:\n    outcome: completed\n    path: "openspec/changes/archive/story-1001"',
+      '  archive:\n    kind: "archive"\n    command: "openspec archive"\n    exit_code: 0\n    checked_at: "2026-08-20T10:00:00+08:00"\n    outcome: completed\n    path: "openspec/changes/archive/story-1001"',
     )
     .replace(
       "  finish:\n    outcome: pending\n    result: null\n    summary: null",
