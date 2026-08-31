@@ -97,7 +97,7 @@ test("does not overwrite an existing requirement ledger", async () => {
   assert.match(await readFile(ledgerPath, "utf8"), /revision: 7/);
 });
 
-test("backfills proposal confirmation for an older unconfirmed ledger", async () => {
+test("does not backfill proposal confirmation for an older unconfirmed ledger", async () => {
   const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-init-confirm-"));
   const args = [
     projectRoot,
@@ -123,12 +123,11 @@ test("backfills proposal confirmation for an older unconfirmed ledger", async ()
   const repeated = runScript(initializeScript, args, projectRoot);
 
   assert.equal(repeated.status, 0, repeated.stderr);
-  assert.equal(JSON.parse(repeated.stdout).outcome, "confirmed");
+  assert.equal(JSON.parse(repeated.stdout).outcome, "existing");
   const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
-  assert.equal(ledger.用户决策.at(-1).kind, "proposal-confirmation");
-  assert.equal(ledger.用户决策.at(-1).actor, "requester");
-  assert.equal(ledger.revision, 2);
-  assert.equal(ledger.推荐动作, "apply");
+  assert.equal(ledger.用户决策.length, 0);
+  assert.equal(ledger.revision, 1);
+  assert.equal(ledger.推荐动作, "prepare-workspace");
 });
 
 test("closes a requirement only after archive and finish evidence exist", async () => {

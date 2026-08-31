@@ -136,6 +136,7 @@ test("prepares the workspace before the proposal is confirmed", async () => {
 
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
+  assert.equal(output.recommendedNext, "propose");
   assert.equal(git(projectRoot, "branch", "--show-current"), "main");
   assert.equal(git(output.worktree, "branch", "--show-current"), "feature/story-1000");
 });

@@ -14,12 +14,6 @@ import { pathToFileURL } from "node:url";
 
 import { serializeProgressYaml } from "./advance-progress.mjs";
 import {
-  acquireLedgerLock,
-  commitLedgerLock,
-  releaseLedgerLock,
-} from "./ledger-lock.mjs";
-import {
-  hasApprovedProposal,
   parseProgressYaml,
   validateProgress,
 } from "./validate-progress.mjs";
@@ -129,87 +123,6 @@ function assertExistingMatches(document, requirementId, changeId, owner) {
   }
 }
 
-function ensureProposalConfirmation(
-  ledgerPath,
-  requirementId,
-  changeId,
-  owner,
-  confirmedBy,
-) {
-  const initial = parseProgressYaml(readFileSync(ledgerPath, "utf8"));
-  assertExistingMatches(initial, requirementId, changeId, owner);
-  const decisions = Array.isArray(initial.用户决策) ? initial.用户决策 : [];
-  if (decisions.some((decision) => decision?.kind === "requirement-intake")) {
-    return false;
-  }
-  if (
-    hasApprovedProposal(initial) &&
-    (initial.交付状态 !== "not-started" || initial.推荐动作 === "apply")
-  ) {
-    return false;
-  }
-
-  const lock = acquireLedgerLock(ledgerPath, owner);
-  const lockPath = `${ledgerPath}.lock`;
-  const originalSource = readFileSync(ledgerPath, "utf8");
-  try {
-    const document = parseProgressYaml(originalSource);
-    assertExistingMatches(document, requirementId, changeId, owner);
-    if (
-      hasApprovedProposal(document) &&
-      (document.交付状态 !== "not-started" || document.推荐动作 === "apply")
-    ) {
-      releaseLedgerLock(ledgerPath, lock.token);
-      return false;
-    }
-
-    const now = new Date().toISOString();
-    if (!hasApprovedProposal(document)) {
-      const decisions = Array.isArray(document.用户决策)
-        ? document.用户决策
-        : [];
-      decisions.push({
-        kind: "proposal-confirmation",
-        outcome: "approved",
-        actor: confirmedBy,
-        at: now,
-      });
-      document.用户决策 = decisions;
-    }
-    if (
-      document.交付状态 === "not-started" &&
-      document.推荐动作 !== "apply"
-    ) {
-      document.当前意图 = "准备实施";
-      document.推荐动作 = "apply";
-    }
-    const events = Array.isArray(document.事件日志)
-      ? document.事件日志
-      : [];
-    events.push({
-      kind: "proposal-confirmed",
-      actor: confirmedBy,
-      at: now,
-    });
-    document.事件日志 = events;
-
-    const issues = validateProgress(document);
-    if (issues.length > 0) {
-      throw new Error(
-        `账本确认校验失败: ${issues[0].code} ${issues[0].message}`,
-      );
-    }
-
-    writeFileSync(ledgerPath, serializeProgressYaml(document), "utf8");
-    commitLedgerLock(ledgerPath, lock.token);
-    return true;
-  } catch (error) {
-    writeFileSync(ledgerPath, originalSource, "utf8");
-    if (existsSync(lockPath)) releaseLedgerLock(ledgerPath, lock.token);
-    throw error;
-  }
-}
-
 function existingLedgerResult(
   projectRoot,
   ledgerPath,
@@ -218,16 +131,10 @@ function existingLedgerResult(
   owner,
   confirmedBy,
 ) {
-  const confirmed = ensureProposalConfirmation(
-    ledgerPath,
-    requirementId,
-    changeId,
-    owner,
-    confirmedBy,
-  );
   const existing = parseProgressYaml(readFileSync(ledgerPath, "utf8"));
+  assertExistingMatches(existing, requirementId, changeId, owner);
   return {
-    outcome: confirmed ? "confirmed" : "existing",
+    outcome: "existing",
     ledger: ledgerPath,
     recommendedNext: existing.推荐动作,
   };
@@ -247,7 +154,7 @@ export function initializeRequirement(
     ["需求名称", name],
     ["change_id", changeId],
     ["负责人", owner],
-    ["方案确认人", confirmedBy],
+    ["接纳人", confirmedBy],
   ]) {
     if (!hasText(value)) throw new Error(`${label}不能为空`);
   }

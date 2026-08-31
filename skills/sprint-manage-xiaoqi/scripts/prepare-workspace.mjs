@@ -256,7 +256,7 @@ function prepareWorkspace(ledgerPath, projectRoot, owner, repository, document) 
     baseBranch,
     branch,
     worktree,
-    recommendedNext: "apply",
+    recommendedNext: "propose",
     id: repository?.id,
   };
 }
@@ -295,7 +295,7 @@ export function prepareWorkspaces(ledgerPath, projectRoot, owner) {
     baseBranch: first.baseBranch,
     branch: first.branch,
     worktree: first.worktree,
-    recommendedNext: "apply",
+    recommendedNext: "propose",
     repositories: results,
   };
 }
