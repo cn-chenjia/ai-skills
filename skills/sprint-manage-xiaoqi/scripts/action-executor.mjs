@@ -88,6 +88,9 @@ export function createCommandExecutor({
       checked_at: now(),
       summary: config.summary ?? (output || `${action.name} 执行成功`),
       ...(config.result ? { result: config.result } : {}),
+      ...(action.name === "apply" && Array.isArray(config.completed_tasks)
+        ? { completed_tasks: config.completed_tasks }
+        : {}),
     };
   };
 }

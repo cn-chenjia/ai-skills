@@ -404,6 +404,39 @@ function isSuccessfulApplyEvidence(evidence) {
   );
 }
 
+function taskMappingIssues(document) {
+  const issues = [];
+  if (!Object.hasOwn(document, "任务映射")) return issues;
+  if (!Array.isArray(document.任务映射)) {
+    addIssue(issues, "invalid-task-mapping", "任务映射", "任务映射必须是数组");
+    return issues;
+  }
+  const taskIds = new Set();
+  for (const [index, task] of document.任务映射.entries()) {
+    const issuePath = `任务映射[${index}]`;
+    if (!hasText(task?.id) || taskIds.has(task.id)) {
+      addIssue(issues, "duplicate-task-id", `${issuePath}.id`, "任务 id 必须非空且唯一");
+    } else {
+      taskIds.add(task.id);
+    }
+    if (!["pending", "completed"].includes(task?.status)) {
+      addIssue(issues, "invalid-task-status", `${issuePath}.status`, "任务状态必须为 pending 或 completed");
+    }
+  }
+  const completedTasks = document.证据索引?.apply?.completed_tasks ?? [];
+  for (const taskId of completedTasks) {
+    if (!taskIds.has(taskId)) {
+      addIssue(issues, "unknown-completed-task", "证据索引.apply.completed_tasks", `未登记的 task: ${taskId}`);
+    }
+  }
+  return issues;
+}
+
+function hasCompletedTaskMapping(document) {
+  return !Object.hasOwn(document, "任务映射") ||
+    document.任务映射.every((task) => task.status === "completed");
+}
+
 export function hasApprovedProposal(document) {
   return (
     Array.isArray(document.用户决策) &&
@@ -484,6 +517,14 @@ export function validateDeliveryTransition(document, fromStatus) {
       "进入 verified 前必须提供成功的 check 证据",
     );
   }
+  if (toStatus === "verified" && !hasCompletedTaskMapping(document)) {
+    addIssue(
+      issues,
+      "incomplete-task-mapping",
+      "任务映射",
+      "进入 verified 前所有已登记 task 必须完成",
+    );
+  }
 
   if (
     toStatus === "reviewed" &&
@@ -552,6 +593,7 @@ export function validateProgress(document) {
   }
 
   findLegacyV2Fields(document, "", issues);
+  issues.push(...taskMappingIssues(document));
 
   if (document.schema_version !== 4) {
     addIssue(
@@ -596,8 +638,7 @@ export function validateProgress(document) {
 
   validateEnum(issues, document.流程状态, WORKFLOW_STATUS_VALUES, "invalid-workflow-status", "流程状态", "流程状态");
   validateEnum(issues, document.交付状态, DELIVERY_STATUS_VALUES, "invalid-delivery-status", "交付状态", "交付状态");
-  if (
-    document.交付状态 !== "not-started" &&
+  if (document.交付状态 !== "not-started" &&
     !hasApprovedProposal(document)
   ) {
     addIssue(

@@ -245,6 +245,13 @@ function attachEvidence(document, evidence) {
 
   if (evidence.kind === "apply") {
     next.apply = evidence;
+    if (Array.isArray(document.任务映射) && Array.isArray(evidence.completed_tasks)) {
+      document.任务映射 = document.任务映射.map((task) =>
+        evidence.completed_tasks.includes(task.id)
+          ? { ...task, status: "completed" }
+          : task,
+      );
+    }
   } else if (evidence.kind === "check") {
     next.checks = Array.isArray(next.checks) ? next.checks : [];
     next.checks.push(evidence);

@@ -149,6 +149,23 @@ test("starts apply through the automation executor instead of manual stepping", 
   assert.deepEqual(calls, ["apply", "check", "review", "openspec-verify"]);
 });
 
+test("includes configured completed tasks in apply evidence", async () => {
+  const executor = createCommandExecutor({
+    projectRoot: process.cwd(),
+    commands: {
+      apply: {
+        command: process.execPath,
+        args: ["-e", "process.stdout.write('apply ok')"],
+        completed_tasks: ["task-1"],
+      },
+    },
+  });
+
+  const result = await executor({ name: "apply", targetStatus: "coding" });
+
+  assert.deepEqual(result.completed_tasks, ["task-1"]);
+});
+
 test("executes a configured command and returns check evidence", async () => {
   const executor = createCommandExecutor({
     projectRoot: process.cwd(),

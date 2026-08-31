@@ -34,6 +34,65 @@ async function issueCodes(name) {
   return new Set(validateProgress(await fixture(name)).map((issue) => issue.code));
 }
 
+test("accepts a task completion mapping on the requirement ledger", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.任务映射 = [
+    { id: "task-1", status: "completed" },
+    { id: "task-2", status: "pending" },
+  ];
+  assert.deepEqual(validateProgress(document), []);
+});
+
+test("rejects completed task ids that are not registered", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.任务映射 = [{ id: "task-1", status: "pending" }];
+  document.证据索引 = {
+    apply: {
+      kind: "apply",
+      command: "apply task-2",
+      exit_code: 0,
+      checked_at: "2026-08-20T10:00:00+08:00",
+      summary: "完成 task-2",
+      completed_tasks: ["task-2"],
+    },
+    checks: [],
+    review: null,
+    archive: { outcome: "pending", path: null },
+    finish: { outcome: "pending", result: null, summary: null },
+  };
+  const codes = new Set(validateProgress(document).map((issue) => issue.code));
+  assert(codes.has("unknown-completed-task"));
+});
+
+test("does not verify a ledger with pending tasks", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.交付状态 = "verified";
+  document.任务映射 = [{ id: "task-1", status: "pending" }];
+  document.证据索引 = {
+    apply: {
+      kind: "apply",
+      command: "apply task-1",
+      exit_code: 0,
+      checked_at: "2026-08-20T10:00:00+08:00",
+      summary: "实现 task-1",
+      completed_tasks: [],
+    },
+    checks: [{
+      kind: "check",
+      command: "npm test",
+      exit_code: 0,
+      commit: "abc123",
+      checked_at: "2026-08-20T10:01:00+08:00",
+      summary: "测试通过",
+    }],
+    review: null,
+    archive: { outcome: "pending", path: null },
+    finish: { outcome: "pending", result: null, summary: null },
+  };
+  const codes = new Set(validateProgress(document).map((issue) => issue.code));
+  assert(codes.has("incomplete-task-mapping"));
+});
+
 test("accepts an isolated single-person requirement ledger", async () => {
   assert.deepEqual(validateProgress(await fixture("valid-single.yaml")), []);
 });
@@ -233,6 +292,28 @@ test("advance command applies a verified transition with check evidence", async 
   assert.equal(advanced.交付状态, "verified");
   assert.equal(advanced.证据索引.checks.length, 1);
   assert.equal(advanced.revision, 2);
+});
+
+test("advance command maps completed apply tasks onto the ledger", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-task-map-"));
+  const file = path.join(directory, "story-1001.yaml");
+  const source = (await fixtureSource("valid-single.yaml"))
+    .replace("交付状态: coding", "交付状态: not-started")
+    .replace("证据索引:\n", "任务映射:\n  - id: task-1\n    status: pending\n证据索引:\n");
+  await writeFile(file, source);
+
+  advanceProgress(file, "coding", {
+    kind: "apply",
+    command: "openspec apply story-1001",
+    exit_code: 0,
+    checked_at: "2026-08-20T09:00:00+08:00",
+    summary: "task-1 已完成",
+    completed_tasks: ["task-1"],
+  }, "alice");
+
+  const advanced = parseProgressYaml(await readFile(file, "utf8"));
+  assert.equal(advanced.任务映射[0].status, "completed");
+  assert.deepEqual(advanced.证据索引.apply.completed_tasks, ["task-1"]);
 });
 
 test("advance command records successful apply evidence when coding starts", async () => {
