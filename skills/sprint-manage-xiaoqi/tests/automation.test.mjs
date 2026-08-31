@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -24,7 +24,9 @@ import {
 import { parseProgressYaml } from "../scripts/validate-progress.mjs";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
+const skillDir = path.resolve(testDir, "..");
 const fixturePath = path.resolve(testDir, "fixtures", "valid-single.yaml");
+const automationScript = path.resolve(skillDir, "scripts", "start-automation.mjs");
 
 async function createLedger() {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-auto-"));
@@ -275,6 +277,42 @@ test("waits for explore confirmation before starting automation", async () => {
 
   assert.equal(result.status, "needs-explore");
   assert.equal(result.classification.status, "needs-explore");
+});
+
+test("CLI returns non-zero and distinguishes needs-explore from needs-confirmation", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-auto-cli-gates-"));
+  const requestPath = path.join(directory, "request.json");
+  const ledgerPath = path.join(directory, "story-1001.yaml");
+  await writeFile(requestPath, JSON.stringify({
+    text: "增加供应商审批流程",
+    acceptanceCriteria: [],
+    changedFiles: ["db/migrations/001.sql"],
+    riskFlags: ["database"],
+  }));
+  await writeFile(ledgerPath, await readFile(fixturePath, "utf8"));
+
+  const needsExplore = spawnSync(process.execPath, [
+    automationScript, requestPath, ledgerPath, "alice", directory,
+  ], { encoding: "utf8" });
+  assert.notEqual(needsExplore.status, 0);
+  assert.equal(JSON.parse(needsExplore.stdout).status, "needs-explore");
+
+  const needsConfirmationLedger = path.join(directory, "story-1002.yaml");
+  await writeFile(
+    needsConfirmationLedger,
+    (await readFile(fixturePath, "utf8")).replace("交付状态: coding", "交付状态: not-started"),
+  );
+  await writeFile(requestPath, JSON.stringify({
+    text: "修复订单查询为空时的报错",
+    acceptanceCriteria: ["空结果返回正常提示"],
+    changedFiles: ["src/order/query.js"],
+  }));
+
+  const needsConfirmation = spawnSync(process.execPath, [
+    automationScript, requestPath, needsConfirmationLedger, "alice", directory,
+  ], { encoding: "utf8" });
+  assert.notEqual(needsConfirmation.status, 0);
+  assert.equal(JSON.parse(needsConfirmation.stdout).status, "needs-confirmation");
 });
 
 test("runs evidence-driven actions until the ledger reaches ready", async () => {

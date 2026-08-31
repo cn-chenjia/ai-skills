@@ -52,7 +52,7 @@ test("initializes the first tracked requirement before implementation", async ()
     getRequirementPath(projectRoot, "story-66102", path.join(projectRoot, ".test-home")),
   );
   assert.equal(path.resolve(output.ledger), ledgerPath);
-  assert.equal(output.recommendedNext, "apply");
+  assert.equal(output.recommendedNext, "prepare-workspace");
   assert.equal(existsSync(ledgerPath), true);
   assert.equal(output.ledger, ledgerPath);
 

@@ -53,6 +53,19 @@ export async function startAutomation({
   };
 }
 
+export const AUTOMATION_EXIT_CODES = Object.freeze({
+  completed: 0,
+  ready: 0,
+  blocked: 1,
+  failed: 1,
+  "needs-confirmation": 1,
+  "needs-explore": 1,
+});
+
+export function automationExitCode(result = {}) {
+  return AUTOMATION_EXIT_CODES[result?.status] ?? 1;
+}
+
 async function runCli(args) {
   if (args.length < 3) {
     console.error(
@@ -74,7 +87,7 @@ async function runCli(args) {
     confirmed: args.includes("--confirmed"),
   });
   console.log(JSON.stringify(result));
-  return result.status === "blocked" ? 1 : 0;
+  return automationExitCode(result);
 }
 
 const executedPath = process.argv[1]

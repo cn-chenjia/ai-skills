@@ -470,6 +470,17 @@ export function hasApprovedProposal(document) {
   );
 }
 
+export function hasApprovedImplementationStart(document) {
+  return (
+    Array.isArray(document.用户决策) &&
+    document.用户决策.some(
+      (decision) =>
+        decision?.kind === "implementation-start" &&
+        decision?.outcome === "approved",
+    )
+  );
+}
+
 export function validateDeliveryTransition(document, fromStatus) {
   const issues = [];
   const toStatus = document?.交付状态;
@@ -671,6 +682,14 @@ export function validateProgress(document) {
       "missing-proposal-confirmation",
       "用户决策",
       "进入实施后必须保留用户已确认需求方案的记录",
+    );
+  }
+  if (document.交付状态 === "coding" && !hasApprovedImplementationStart(document)) {
+    addIssue(
+      issues,
+      "missing-implementation-start-approval",
+      "用户决策",
+      "交付状态为 coding 时必须记录用户已批准 implementation-start",
     );
   }
 

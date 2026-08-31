@@ -222,7 +222,7 @@ export function initializeRequirement(
   return {
     outcome: "created",
     ledger: ledgerPath,
-    recommendedNext: "apply",
+    recommendedNext: "prepare-workspace",
   };
 }
 

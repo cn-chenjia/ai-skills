@@ -223,6 +223,43 @@ test("rejects coding ledgers without an approved proposal decision", async () =>
   );
 });
 
+test("rejects coding without an approved implementation-start decision in validation and advancement", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.用户决策 = [
+    { kind: "proposal-confirmation", outcome: "approved" },
+  ];
+  assert(
+    validateProgress(document).some(
+      (issue) => issue.code === "missing-implementation-start-approval",
+    ),
+  );
+
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-implementation-approval-"));
+  const file = path.join(directory, "story-1001.yaml");
+  const source = (await fixtureSource("valid-single.yaml"))
+    .replace(
+      '  - kind: implementation-start\n    outcome: approved\n    actor: "requester"\n    at: "2026-08-11T10:00:00+08:00"\n',
+      "",
+    )
+    .replace(
+      "交付状态: coding",
+      "交付状态: not-started",
+    );
+  await writeFile(file, source);
+
+  assert.throws(
+    () => advanceProgress(file, "coding", {
+      kind: "apply",
+      command: "openspec apply story-1001",
+      exit_code: 0,
+      checked_at: "2026-08-20T09:00:00+08:00",
+      summary: "实现已开始",
+    }, "alice"),
+    /missing-implementation-start-approval/,
+  );
+});
+
+
 test("directory validation detects duplicate branches, worktrees, and active conflict keys", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-v4-"));
   const first = await fixtureSource("valid-single.yaml");
