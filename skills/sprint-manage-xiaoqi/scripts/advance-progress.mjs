@@ -70,6 +70,7 @@ export function validateEvidence(evidence, targetStatus) {
     }
     return;
   }
+  const hasText = (value) => typeof value === "string" && value.trim() !== "";
   const { kind } = evidence;
   const schema = EVIDENCE_SCHEMA[kind];
   if (!schema) {
@@ -109,11 +110,28 @@ export function validateEvidence(evidence, targetStatus) {
     const tdd = evidence.tdd;
     const validPhase = (phase, exitCode, result) =>
       phase && phase.command && phase.exit_code === exitCode && phase.result === result && phase.summary;
-    if (tdd.enabled !== true || !validPhase(tdd.red, 1, "failed") || !validPhase(tdd.green, 0, "passed")) {
-      throw new Error("apply 的 TDD 证据必须包含有效的 red 和 green 阶段");
+    if (tdd.enabled === true) {
+      if (!validPhase(tdd.red, 1, "failed") || !validPhase(tdd.green, 0, "passed")) {
+        throw new Error("apply 的 TDD 证据必须包含有效的 red 和 green 阶段");
+      }
+      if (tdd.refactor && !validPhase(tdd.refactor, 0, "passed")) {
+        throw new Error("apply 的 TDD refactor 阶段必须成功并标记 passed");
+      }
+    } else if (!hasText(tdd.reason)) {
+      throw new Error("关闭 TDD 的 apply 证据必须记录豁免原因（tdd.reason）");
     }
-    if (tdd.refactor && !validPhase(tdd.refactor, 0, "passed")) {
-      throw new Error("apply 的 TDD refactor 阶段必须成功并标记 passed");
+  }
+
+  // tdd_tasks 逐项校验：记录在 apply 证据里、映射到任务映射的 TDD 声明同样受豁免留痕约束
+  if (kind === "apply" && Array.isArray(evidence.tdd_tasks)) {
+    for (const item of evidence.tdd_tasks) {
+      if (!hasText(item.task_id)) {
+        throw new Error("tdd_tasks 的每一项必须包含非空的 task_id");
+      }
+      const tdd = item.tdd;
+      if (tdd && tdd.enabled !== true && !hasText(tdd.reason)) {
+        throw new Error(`任务 ${item.task_id} 关闭 TDD 必须记录豁免原因（tdd.reason）`);
+      }
     }
   }
 

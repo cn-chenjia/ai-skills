@@ -60,10 +60,10 @@ CLI 命令；后者用于更新 OpenSpec instruction 文件，不能拿来修改
 1. 需求接纳后先建账并准备工作区；OpenSpec explore/propose 只能在登记后的 worktree 中执行。
 2. 方案确认后，用户必须在“立即实施”和“暂停当前需求”中明确选择；立即实施记录 `implementation-start: approved` 后才继续本路径，暂停不记录该决策且保持 `not-started`。用户若只想结束当前对话，无需额外流程选项。
 3. OpenSpec proposal/design/specs/tasks 是唯一需求事实。
-3. 每个 task 内部执行失败验证、最小实现、验证通过和整理。
-4. 必须为每个仓库创建或复用需求专属分支和 `.worktrees/<需求编号>` worktree；不得将当前工作区登记为 `.`，也不因当前工作区存在未提交修改而切换或阻塞。
-5. 项目验证通过后，再运行 OpenSpec verify 检查实现与规格一致性。
-6. 验证结果返回主技能，由主技能决定下一动作。
+4. 每个 task 内部执行失败验证、最小实现、验证通过和整理；关闭 TDD 的任务（`tdd.enabled: false`）必须在任务映射中记录 `tdd.reason` 豁免原因，无原因不得豁免。
+5. 必须为每个仓库创建或复用需求专属分支和 `.worktrees/<需求编号>` worktree；不得将当前工作区登记为 `.`，也不因当前工作区存在未提交修改而切换或阻塞。
+6. 项目验证通过后，再运行 OpenSpec verify 检查实现与规格一致性。
+7. 验证结果返回主技能，由主技能决定下一动作。
 
 简单不等于跳过 TDD、验证或真实证据。
 

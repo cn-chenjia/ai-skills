@@ -484,6 +484,13 @@ function taskMappingIssues(document) {
       if (tdd.refactor && !tddPhaseValid(tdd.refactor, 0, "passed")) {
         addIssue(issues, "invalid-tdd-refactor", `${issuePath}.tdd.refactor`, "TDD refactor 阶段必须成功并标记 passed");
       }
+    } else if (tdd && !hasText(tdd.reason)) {
+      addIssue(
+        issues,
+        "missing-tdd-exemption-reason",
+        `${issuePath}.tdd.reason`,
+        "关闭 TDD 的任务必须记录豁免原因（tdd.reason）",
+      );
     }
   }
   const completedTasks = document.证据索引?.apply?.completed_tasks ?? [];

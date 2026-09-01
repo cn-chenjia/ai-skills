@@ -63,6 +63,27 @@ test("rejects enabled TDD evidence without a failed red phase", async () => {
   assert(codes.has("invalid-tdd-red"));
 });
 
+test("accepts a disabled TDD task with an exemption reason", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.任务映射 = [{
+    id: "task-1",
+    status: "completed",
+    tdd: { enabled: false, reason: "纯配置变更，无业务逻辑" },
+  }];
+  assert.deepEqual(validateProgress(document), []);
+});
+
+test("rejects a disabled TDD task without an exemption reason", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.任务映射 = [{
+    id: "task-1",
+    status: "pending",
+    tdd: { enabled: false },
+  }];
+  const codes = new Set(validateProgress(document).map((issue) => issue.code));
+  assert(codes.has("missing-tdd-exemption-reason"));
+});
+
 test("maps TDD evidence from apply onto the completed task", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-tdd-map-"));
   const file = path.join(directory, "story-1001.yaml");
@@ -88,6 +109,55 @@ test("maps TDD evidence from apply onto the completed task", async () => {
   }, "alice", { reconcile: false });
   const advanced = parseProgressYaml(await readFile(file, "utf8"));
   assert.equal(advanced.任务映射[0].tdd.enabled, true);
+});
+
+test("advance rejects apply TDD exemption without a recorded reason", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-tdd-reason-"));
+  const file = path.join(directory, "story-1001.yaml");
+  const source = (await fixtureSource("valid-single.yaml"))
+    .replace("交付状态: coding", "交付状态: not-started")
+    .replace("证据索引:\n", "任务映射:\n  - id: task-1\n    status: pending\n证据索引:\n");
+  await writeFile(file, source);
+
+  assert.throws(
+    () => advanceProgress(file, "coding", {
+      kind: "apply",
+      command: "apply task-1",
+      exit_code: 0,
+      checked_at: "2026-08-20T10:00:00+08:00",
+      summary: "task-1 完成",
+      completed_tasks: ["task-1"],
+      tdd: { enabled: false },
+    }, "alice", { reconcile: false }),
+    /豁免原因/,
+  );
+});
+
+test("advance accepts a recorded TDD exemption and maps it onto the task", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-tdd-reason-ok-"));
+  const file = path.join(directory, "story-1001.yaml");
+  const source = (await fixtureSource("valid-single.yaml"))
+    .replace("交付状态: coding", "交付状态: not-started")
+    .replace("证据索引:\n", "任务映射:\n  - id: task-1\n    status: pending\n证据索引:\n");
+  await writeFile(file, source);
+
+  advanceProgress(file, "coding", {
+    kind: "apply",
+    command: "apply task-1",
+    exit_code: 0,
+    checked_at: "2026-08-20T10:00:00+08:00",
+    summary: "task-1 完成",
+    completed_tasks: ["task-1"],
+    tdd_tasks: [{
+      task_id: "task-1",
+      tdd: { enabled: false, reason: "纯配置变更，无业务逻辑" },
+    }],
+  }, "alice", { reconcile: false });
+
+  const advanced = parseProgressYaml(await readFile(file, "utf8"));
+  assert.equal(advanced.任务映射[0].status, "completed");
+  assert.equal(advanced.任务映射[0].tdd.enabled, false);
+  assert.equal(advanced.任务映射[0].tdd.reason, "纯配置变更，无业务逻辑");
 });
 
 test("accepts a task completion mapping on the requirement ledger", async () => {
