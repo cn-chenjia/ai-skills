@@ -16,16 +16,18 @@
 
 小七先读取 OpenSpec 原生状态，再根据用户意图路由：
 
-| 用户意图 | 推荐动作 | 主要责任方 |
-| --- | --- | --- |
-| 调查问题、比较方向 | `explore` | OpenSpec；由小七保持流程所有权 |
-| 创建或完善 change | `propose` | OpenSpec |
-| 按 tasks 实现 | `apply` | OpenSpec 提供任务，Superpowers 提供执行纪律 |
-| 开发中需求或设计变化 | `update` | OpenSpec |
-| 检查代码质量和规格一致性 | `verify` | 项目工具 + Superpowers + OpenSpec |
-| 提前同步变更规格 | `sync` | OpenSpec |
-| 归档 change | `archive` | OpenSpec；由主技能重新路由 |
-| 创建 PR、合并或保留分支 | `finish` | Superpowers；由主技能重新路由 |
+| 用户意图 | 推荐动作 | 责任方 | 需调用的能力面 |
+| --- | --- | --- | --- |
+| 调查问题、比较方向 | `explore` | OpenSpec；由小七保持流程所有权 | 需求澄清、事实收集与方向比较 |
+| 创建或完善 change | `propose` | OpenSpec | 提案与设计撰写 |
+| 按 tasks 实现 | `apply` | OpenSpec 提供任务，Superpowers 提供执行纪律 | TDD（先失败后通过）、调试、最小实现、项目测试运行 |
+| 开发中需求或设计变化 | `update` | OpenSpec | 变更拆解与任务重排 |
+| 检查代码质量和规格一致性 | `verify` | 项目工具 + Superpowers + OpenSpec | 验证、测试/构建/静态检查、规格一致性核对 |
+| 提前同步变更规格 | `sync` | OpenSpec | 规格同步 |
+| 归档 change | `archive` | OpenSpec；由主技能重新路由 | 归档操作 |
+| 创建 PR、合并或保留分支 | `finish` | Superpowers；由主技能重新路由 | 代码评审、分支收尾、PR 与合并操作 |
+
+能力面是能力类别，不是技能或工具名称；具体能力由宿主环境在对应时机自动匹配。每次进入动作时，小七只负责确认该动作需要的能力面，不点名具体技能，执行完成后返回主技能。
 
 `explore -> propose -> apply -> update -> verify -> sync -> archive` 是动作集合，
 不是强制阶段链。是否可执行以 OpenSpec status 和 instructions 为准。
