@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
 import {
+  isBlockingIssue,
   parseProgressYaml,
   validateDeliveryTransition,
   validateProgress,
@@ -73,7 +74,7 @@ export function commitLedgerLock(filePath, token) {
       `状态推进校验失败: ${transitionIssues[0].code} ${transitionIssues[0].message}`,
     );
   }
-  const issues = validateProgress(document);
+  const issues = validateProgress(document).filter(isBlockingIssue);
   if (issues.length > 0) {
     throw new Error(`账本校验失败: ${issues[0].code} ${issues[0].message}`);
   }

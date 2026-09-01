@@ -5,7 +5,10 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { advanceProgress } from "./advance-progress.mjs";
 import { createCommandExecutor } from "./action-executor.mjs";
-import { resolveNextAction as resolveDefaultNextAction } from "./action-resolver.mjs";
+import {
+  compareRecommendedAction as compareDefaultRecommendedAction,
+  resolveNextAction as resolveDefaultNextAction,
+} from "./action-resolver.mjs";
 import { parseProgressYaml } from "./validate-progress.mjs";
 
 const FINAL_DELIVERY_STATES = new Set(["pr-open", "merged", "kept"]);
@@ -57,6 +60,9 @@ function failureResult(action, result) {
 
 function isSuccessfulEvidence(result) {
   const evidence = result?.evidence ?? result;
+  if (Array.isArray(evidence?.repositories)) {
+    return evidence.repositories.length > 0 && evidence.repositories.every((item) => isSuccessfulEvidence(item));
+  }
   return Boolean(
     evidence &&
       evidence.kind &&
@@ -93,6 +99,8 @@ export async function runUntilReady({
   projectRoot = process.cwd(),
   commands,
   policy = {},
+  reconcile,
+  compareRecommendedAction,
   maxSteps = 20,
   maxRepairAttempts = 3,
 } = {}) {
@@ -101,9 +109,15 @@ export async function runUntilReady({
   }
 
   const nextActionResolver = resolveNextAction ?? resolveDefaultNextAction;
+  const recommendedActionComparer =
+    typeof compareRecommendedAction === "function"
+      ? compareRecommendedAction
+      : compareRecommendedAction === false
+        ? null
+        : compareDefaultRecommendedAction;
   const actionExecutor =
     executeAction ??
-    createCommandExecutor({ projectRoot, commands, policy });
+    createCommandExecutor({ projectRoot, commands, policy, repositories: currentState(ledgerPath).仓库 });
   const steps = [];
   const repairs = [];
   const repairCounts = new Map();
@@ -169,6 +183,25 @@ export async function runUntilReady({
         steps,
         repairs,
       });
+    }
+
+    if (recommendedActionComparer) {
+      const comparison = recommendedActionComparer(document);
+      if (comparison?.consistent === false) {
+        const summary =
+          `账本推荐动作 ${comparison.ledger} 与真实状态冲突：` +
+          `按当前状态应执行 ${comparison.resolved?.name ?? "无可用动作"}`;
+        return protocolResult({
+          status: "blocked",
+          outcome: "blocked",
+          summary,
+          blockers: [summary],
+          recommended_next: "manual-intervention",
+          action: action.name,
+          steps,
+          repairs,
+        });
+      }
     }
 
     let result;
@@ -241,7 +274,10 @@ export async function runUntilReady({
       });
     }
 
-    advanceProgress(ledgerPath, action.targetStatus, evidence, owner);
+    advanceProgress(ledgerPath, action.targetStatus, evidence, owner, {
+      projectRoot,
+      reconcile,
+    });
     steps.push({
       action: action.name,
       targetStatus: action.targetStatus,

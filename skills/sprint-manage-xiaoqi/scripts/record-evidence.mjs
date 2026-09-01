@@ -18,6 +18,7 @@ import {
   releaseLedgerLock,
 } from "./ledger-lock.mjs";
 import {
+  isBlockingIssue,
   parseProgressYaml,
   validateProgress,
 } from "./validate-progress.mjs";
@@ -31,11 +32,7 @@ function findKey(document, fragment) {
   return key;
 }
 
-function attachEvidence(document, evidence) {
-  const evidenceKey = findKey(document, "证据");
-  const evidenceIndex = document[evidenceKey] ?? {};
-  const next = structuredClone(evidenceIndex);
-
+function appendEvidence(next, evidence) {
   if (evidence.kind === "apply") {
     next.apply = evidence;
   } else if (evidence.kind === "check") {
@@ -52,13 +49,32 @@ function attachEvidence(document, evidence) {
   } else {
     throw new Error(`不支持的证据类型: ${evidence.kind}`);
   }
+}
 
+export function attachEvidence(document, evidence) {
+  const evidenceKey = findKey(document, "证据");
+  const next = structuredClone(document[evidenceKey] ?? {});
+  if (Array.isArray(evidence.repositories)) {
+    const indexKey = evidence.kind === "check" ? "checks" : evidence.kind;
+    if (!["apply", "checks"].includes(indexKey)) {
+      for (const item of evidence.repositories) appendEvidence(next, item);
+    } else {
+      const existing = next[indexKey];
+      const items = Array.isArray(existing)
+        ? existing
+        : (Array.isArray(existing?.repositories) ? existing.repositories : (existing ? [existing] : []));
+      next[indexKey] = { repositories: [...items, ...evidence.repositories] };
+    }
+  } else {
+    appendEvidence(next, evidence);
+  }
   document[evidenceKey] = next;
 }
 
-async function recordEvidence(filePath, evidence, owner) {
+export async function recordEvidence(filePath, evidence, owner) {
   // finish 证据必须通过 advance-progress 推进交付状态，不能单独记录
-  if (evidence.kind === "finish") {
+  const evidenceKind = evidence.kind ?? evidence.repositories?.[0]?.kind;
+  if (evidenceKind === "finish") {
     throw new Error(
       "finish 证据必须通过 advance-progress.mjs 推进交付状态，不能用 record-evidence.mjs 单独记录",
     );
@@ -95,7 +111,7 @@ async function recordEvidence(filePath, evidence, owner) {
     });
     next[eventKey] = events;
 
-    const validationIssues = validateProgress(next);
+    const validationIssues = validateProgress(next).filter(isBlockingIssue);
     if (validationIssues.length > 0) {
       throw new Error(
         `账本校验失败: ${validationIssues[0].code} ${validationIssues[0].message}`,

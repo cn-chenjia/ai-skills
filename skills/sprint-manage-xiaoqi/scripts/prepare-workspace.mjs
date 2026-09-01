@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -48,6 +49,10 @@ function branchExists(projectRoot, branch) {
 function comparablePath(value) {
   const resolved = path.resolve(value);
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function hasText(value) {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function listWorktrees(projectRoot) {
@@ -261,6 +266,24 @@ function prepareWorkspace(ledgerPath, projectRoot, owner, repository, document) 
   };
 }
 
+function rollbackCreatedWorkspaces(created) {
+  const failures = [];
+  for (const item of created) {
+    try {
+      runGit(item.projectRoot, ["worktree", "remove", item.worktree]);
+    } catch (error) {
+      failures.push(`移除工作区失败 ${item.worktree}: ${error.message}`);
+      continue;
+    }
+    try {
+      runGit(item.projectRoot, ["branch", "-D", item.branch]);
+    } catch (error) {
+      failures.push(`删除分支失败 ${item.branch}: ${error.message}`);
+    }
+  }
+  return failures;
+}
+
 export function prepareWorkspaces(ledgerPath, projectRoot, owner) {
   const ledger = path.resolve(ledgerPath);
   const root = path.resolve(projectRoot);
@@ -274,9 +297,30 @@ export function prepareWorkspaces(ledgerPath, projectRoot, owner) {
   const repositories = document.仓库?.length
     ? document.仓库
     : [{ id: "main", root: "." }];
-  const results = repositories.map((repository) =>
-    prepareWorkspace(ledger, path.resolve(root, repository.root), owner, repository, document),
-  );
+  const results = [];
+  const created = [];
+  try {
+    for (const repository of repositories) {
+      const repositoryRoot = path.resolve(root, repository.root);
+      const result = prepareWorkspace(ledger, repositoryRoot, owner, repository, document);
+      results.push(result);
+      if (result.mode === "created") {
+        created.push({
+          projectRoot: repositoryRoot,
+          worktree: result.worktree,
+          branch: result.branch,
+        });
+      }
+    }
+  } catch (error) {
+    const rollbackFailures = rollbackCreatedWorkspaces(created);
+    const rollbackNote = rollbackFailures.length > 0
+      ? `；回滚失败，请手动清理: ${rollbackFailures.join("；")}`
+      : "";
+    throw new Error(
+      `准备工作区失败，已回滚本次新建的工作区与分支: ${error.message}${rollbackNote}`,
+    );
+  }
   const updatedRepositories = repositories.map((repository, index) => ({
     ...repository,
     branch: results[index].branch,
@@ -297,6 +341,119 @@ export function prepareWorkspaces(ledgerPath, projectRoot, owner) {
     worktree: first.worktree,
     recommendedNext: "propose",
     repositories: results,
+  };
+}
+
+export function reconcileLedgerWithGit(ledgerPathOrOptions, projectRoot) {
+  const options = typeof ledgerPathOrOptions === "string"
+    ? { ledgerPath: ledgerPathOrOptions, projectRoot }
+    : (ledgerPathOrOptions ?? {});
+  const ledgerPath = path.resolve(options.ledgerPath);
+  const root = path.resolve(options.projectRoot ?? process.cwd());
+  const document = parseProgressYaml(readFileSync(ledgerPath, "utf8"));
+  const repositories = document.仓库?.length
+    ? document.仓库
+    : [{ id: "main", root: "." }];
+
+  const issues = [];
+  const repositoryReports = [];
+  for (const repository of repositories) {
+    const repositoryId = repository.id ?? "main";
+    const repositoryIssues = [];
+    const repositoryRoot = path.resolve(root, repository.root ?? ".");
+
+    const insideGit = runGit(
+      repositoryRoot,
+      ["rev-parse", "--is-inside-work-tree"],
+      { allowFailure: true },
+    ).status === 0;
+
+    if (!insideGit) {
+      repositoryIssues.push({
+        repository_id: repositoryId,
+        code: "root-not-git",
+        expected: "git-repository",
+        actual: "not-a-git-repository",
+        message: `仓库根目录不是 Git 仓库: ${repository.root ?? "."}`,
+      });
+    } else {
+      if (!hasText(repository.branch)) {
+        repositoryIssues.push({
+          repository_id: repositoryId,
+          code: "branch-missing",
+          expected: "non-empty branch",
+          actual: null,
+          message: "账本未登记需求分支",
+        });
+      } else if (!branchExists(repositoryRoot, repository.branch)) {
+        repositoryIssues.push({
+          repository_id: repositoryId,
+          code: "branch-missing",
+          expected: repository.branch,
+          actual: null,
+          message: `账本分支在仓库中不存在: ${repository.branch}`,
+        });
+      }
+
+      if (!hasText(repository.worktree)) {
+        repositoryIssues.push({
+          repository_id: repositoryId,
+          code: "worktree-missing",
+          expected: "non-empty worktree",
+          actual: null,
+          message: "账本未登记工作区",
+        });
+      } else {
+        const worktreePath = path.resolve(root, repository.worktree);
+        if (!existsSync(worktreePath)) {
+          repositoryIssues.push({
+            repository_id: repositoryId,
+            code: "worktree-missing",
+            expected: repository.worktree,
+            actual: null,
+            message: `工作区目录不存在: ${repository.worktree}`,
+          });
+        } else {
+          const registered = listWorktrees(repositoryRoot).find(
+            (item) => item.path && comparablePath(item.path) === comparablePath(worktreePath),
+          );
+          if (!registered) {
+            repositoryIssues.push({
+              repository_id: repositoryId,
+              code: "worktree-unregistered",
+              expected: "git-registered",
+              actual: "unregistered",
+              message: `工作区目录存在但未被 Git 注册: ${repository.worktree}`,
+            });
+          } else if (registered.branch !== repository.branch) {
+            repositoryIssues.push({
+              repository_id: repositoryId,
+              code: "worktree-branch-mismatch",
+              expected: repository.branch,
+              actual: registered.branch ?? null,
+              message: `工作区实际分支 ${registered.branch ?? "(detached)"} 与账本分支 ${repository.branch} 不一致`,
+            });
+          }
+        }
+      }
+    }
+
+    repositoryReports.push({
+      repository_id: repositoryId,
+      root: repository.root ?? ".",
+      branch: repository.branch ?? null,
+      worktree: repository.worktree ?? null,
+      consistent: repositoryIssues.length === 0,
+      issues: repositoryIssues,
+    });
+    issues.push(...repositoryIssues);
+  }
+
+  return {
+    outcome: issues.length === 0 ? "consistent" : "inconsistent",
+    consistent: issues.length === 0,
+    repositories: repositoryReports,
+    issues,
   };
 }
 

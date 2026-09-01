@@ -16,7 +16,9 @@ import {
   commitLedgerLock,
   releaseLedgerLock,
 } from "./ledger-lock.mjs";
+import { reconcileLedgerWithGit } from "./prepare-workspace.mjs";
 import {
+  isBlockingIssue,
   parseProgressYaml,
   validateDeliveryTransition,
   validateProgress,
@@ -59,6 +61,14 @@ const EVIDENCE_SCHEMA = {
 export function validateEvidence(evidence, targetStatus) {
   if (!evidence || typeof evidence !== "object") {
     throw new Error("证据必须是 JSON 对象");
+  }
+  if (Array.isArray(evidence.repositories)) {
+    if (evidence.repositories.length === 0) throw new Error("repositories 证据数组不能为空");
+    for (const item of evidence.repositories) {
+      validateEvidence(item, targetStatus);
+      if (!item.repository_id) throw new Error("多仓库证据必须包含 repository_id");
+    }
+    return;
   }
   const { kind } = evidence;
   const schema = EVIDENCE_SCHEMA[kind];
@@ -251,12 +261,19 @@ function findKey(document, fragment) {
 }
 
 function attachEvidence(document, evidence) {
+  if (Array.isArray(evidence.repositories)) {
+    for (const item of evidence.repositories) attachEvidence(document, item);
+    return;
+  }
   const evidenceKey = findKey(document, "证据");
   const evidenceIndex = document[evidenceKey] ?? {};
   const next = structuredClone(evidenceIndex);
 
   if (evidence.kind === "apply") {
-    next.apply = evidence;
+    const applyEntries = Array.isArray(next.apply) ? next.apply : next.apply ? [next.apply] : [];
+    next.apply = evidence.repository_id
+      ? [...applyEntries.filter((item) => item.repository_id !== evidence.repository_id), evidence]
+      : evidence;
     if (Array.isArray(document.任务映射)) {
       const tddByTask = new Map(
         (Array.isArray(evidence.tdd_tasks) ? evidence.tdd_tasks : [])
@@ -272,6 +289,9 @@ function attachEvidence(document, evidence) {
     }
   } else if (evidence.kind === "check") {
     next.checks = Array.isArray(next.checks) ? next.checks : [];
+    if (evidence.repository_id) {
+      next.checks = next.checks.filter((item) => item.repository_id !== evidence.repository_id);
+    }
     next.checks.push(evidence);
   } else if (evidence.kind === "review") {
     next.review = evidence;
@@ -289,13 +309,30 @@ function attachEvidence(document, evidence) {
 }
 
 export function advanceProgress(filePath, targetStatus, evidence, owner, options = {}) {
-  const { dryRun = false } = options;
+  const { dryRun = false, reconcile, projectRoot } = options;
 
   // 1. 写入前先做证据 schema 校验，缺字段立即拒绝，不进入加锁流程
   validateEvidence(evidence, targetStatus);
 
   // 2. apply 证据未带 commit 时自动回填当前 HEAD
   const enrichedEvidence = autoFillApplyCommit(evidence, filePath);
+
+  // 3. 推进到 coding 前，先对账账本与 Git 工作区；不一致时拒绝推进。
+  //    可通过 options.reconcile 注入自定义对账函数，或传 false 跳过（纯函数测试场景）。
+  if (targetStatus === "coding" && reconcile !== false && reconcile !== null) {
+    const runReconcile = typeof reconcile === "function"
+      ? reconcile
+      : (ledgerPath) => reconcileLedgerWithGit(ledgerPath, projectRoot ?? process.cwd());
+    const report = runReconcile(filePath);
+    if (report?.outcome === "inconsistent" || report?.consistent === false) {
+      const detail = (report.issues ?? [])
+        .map((issue) => `[${issue.code}] ${issue.repository_id ?? ""}: ${issue.message ?? ""}`)
+        .join("；");
+      throw new Error(
+        `账本与 Git 工作区不一致，已拒绝推进到 coding${detail ? `：${detail}` : ""}`,
+      );
+    }
+  }
 
   // dry-run 模式：只校验证据与状态迁移合法性，不实际写入账本
   if (dryRun) {
@@ -320,7 +357,7 @@ export function advanceProgress(filePath, targetStatus, evidence, owner, options
       next,
       document[deliveryKey],
     );
-    const validationIssues = validateProgress(next);
+    const validationIssues = validateProgress(next).filter(isBlockingIssue);
     return {
       outcome: "dry-run",
       targetStatus,
@@ -367,7 +404,7 @@ export function advanceProgress(filePath, targetStatus, evidence, owner, options
       );
     }
 
-    const validationIssues = validateProgress(next);
+    const validationIssues = validateProgress(next).filter(isBlockingIssue);
     if (validationIssues.length > 0) {
       throw new Error(
         `账本校验失败: ${validationIssues[0].code} ${validationIssues[0].message}`,

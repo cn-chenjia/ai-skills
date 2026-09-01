@@ -19,6 +19,7 @@ export async function startAutomation({
   maxSteps = 20,
   repairAction,
   maxRepairAttempts = 3,
+  compareRecommendedAction,
 } = {}) {
   const classification = classifyRequest(request);
 
@@ -44,6 +45,7 @@ export async function startAutomation({
     maxSteps,
     repairAction,
     maxRepairAttempts,
+    compareRecommendedAction,
   });
 
   return {

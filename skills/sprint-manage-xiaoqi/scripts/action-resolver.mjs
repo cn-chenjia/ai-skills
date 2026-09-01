@@ -36,3 +36,18 @@ export function resolveNextAction(document = {}) {
   const action = ACTIONS_BY_STATUS.get(status);
   return action ? { ...action } : null;
 }
+
+export function compareRecommendedAction(document = {}) {
+  const ledger = document.推荐动作 ?? null;
+  const resolved = resolveNextAction(document);
+  if (!ledger) {
+    return { consistent: true, ledger, resolved, code: null };
+  }
+  const consistent = resolved?.name === ledger;
+  return {
+    consistent,
+    ledger,
+    resolved,
+    code: consistent ? null : "recommended-action-mismatch",
+  };
+}

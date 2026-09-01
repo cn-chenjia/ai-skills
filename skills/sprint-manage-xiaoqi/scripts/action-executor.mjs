@@ -24,12 +24,18 @@ function readConfig(projectRoot, configPath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
 }
 
-function commitFor(projectRoot, policy) {
-  if (!existsSync(path.join(projectRoot, ".git"))) return "working-tree";
+function repositoryCwd(projectRoot, repository) {
+  const configured = repository?.worktree || repository?.root;
+  if (!configured) return projectRoot;
+  return path.isAbsolute(configured) ? configured : path.resolve(projectRoot, configured);
+}
+
+function commitFor(repositoryPath) {
+  if (!existsSync(path.join(repositoryPath, ".git"))) return "working-tree";
 
   try {
     return execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: projectRoot,
+      cwd: repositoryPath,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim() || "working-tree";
@@ -41,13 +47,24 @@ function commitFor(projectRoot, policy) {
 export function createCommandExecutor({
   projectRoot = process.cwd(),
   commands = undefined,
+  repositories = undefined,
   policy = {},
   configPath = DEFAULT_CONFIG_PATH,
 } = {}) {
-  const configuredCommands = commands ?? readConfig(projectRoot, configPath).actions ?? {};
+  const configFile = readConfig(projectRoot, configPath);
+  const configuredCommands = commands ?? configFile.actions ?? {};
+  const configuredRepositories = repositories ?? configFile.repositories ?? configFile.仓库 ?? [];
 
   return async function executeAction(action = {}) {
+    if (!action.repository_id && configuredRepositories.length > 1) {
+      const results = await Promise.all(configuredRepositories.map((repository) => executeAction({ ...action, repository_id: repository.id })));
+      const failed = results.find((result) => result.outcome === "failed" || result.outcome === "needs_confirmation");
+      if (failed) return failed;
+      return { kind: results[0].kind, repositories: results, summary: `${action.name} 已完成全部仓库`, result: results[0].result };
+    }
     const config = configuredCommands[action.name];
+    const repository = configuredRepositories.find((item) => item.id === action.repository_id);
+    const cwd = repositoryCwd(projectRoot, repository);
     if (!config?.command) {
       return {
         outcome: "needs_confirmation",
@@ -57,7 +74,7 @@ export function createCommandExecutor({
 
     const args = Array.isArray(config.args) ? config.args.map(String) : [];
     const result = spawnSync(config.command, args, {
-      cwd: projectRoot,
+      cwd,
       encoding: "utf8",
       windowsHide: true,
     });
@@ -78,7 +95,7 @@ export function createCommandExecutor({
     }
 
     const output = (result.stdout ?? "").trim();
-    const sourceRevision = commitFor(projectRoot, policy);
+    const sourceRevision = commitFor(cwd, policy);
     return {
       kind,
       command: [config.command, ...args].join(" "),
@@ -88,6 +105,7 @@ export function createCommandExecutor({
       checked_at: now(),
       summary: config.summary ?? (output || `${action.name} 执行成功`),
       ...(config.result ? { result: config.result } : {}),
+      ...(action.repository_id ? { repository_id: action.repository_id } : {}),
       ...(action.name === "apply" && Array.isArray(config.completed_tasks)
         ? { completed_tasks: config.completed_tasks }
         : {}),

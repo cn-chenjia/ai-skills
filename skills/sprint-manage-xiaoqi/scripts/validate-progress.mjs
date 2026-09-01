@@ -336,8 +336,12 @@ export function parseProgressYaml(source) {
   return parsed.value;
 }
 
-function addIssue(issues, code, issuePath, message) {
-  issues.push({ code, path: issuePath, message });
+function addIssue(issues, code, issuePath, message, severity = "error") {
+  issues.push({ code, path: issuePath, message, severity });
+}
+
+export function isBlockingIssue(issue) {
+  return issue?.severity !== "warning";
 }
 
 function validateEnum(issues, value, allowed, code, issuePath, label) {
@@ -401,6 +405,43 @@ function isSuccessfulApplyEvidence(evidence) {
     evidence.exit_code === 0 &&
     hasText(evidence.checked_at) &&
     hasText(evidence.summary)
+  );
+}
+
+function repositoryEvidenceList(value) {
+  if (Array.isArray(value)) return value;
+  if (value && Array.isArray(value.repositories)) return value.repositories;
+  return value && typeof value === "object" ? [value] : [];
+}
+
+function repositoryEvidenceIssues(document) {
+  const issues = [];
+  const repositories = Array.isArray(document.仓库) ? document.仓库 : [];
+  const evidence = document.证据索引 ?? {};
+  const repositoryIds = new Set(repositories.map((repository) => repository.id));
+  for (const kind of ["apply", "checks"]) {
+    const items = repositoryEvidenceList(evidence[kind]);
+    for (const [index, item] of items.entries()) {
+      if (repositories.length <= 1 && !item?.repository_id) continue;
+      const issuePath = `证据索引.${kind}${Array.isArray(evidence[kind]?.repositories) || Array.isArray(evidence[kind]) ? `[${index}]` : ""}`;
+      if (!hasText(item?.repository_id) || !repositoryIds.has(item.repository_id)) {
+        addIssue(issues, item?.repository_id ? "unknown-repository-evidence" : "missing-repository-evidence", `${issuePath}.repository_id`, item?.repository_id ? `证据引用了未登记的仓库: ${item.repository_id}` : "多仓库证据必须包含有效的 repository_id");
+      }
+    }
+  }
+  return issues;
+}
+
+function hasSuccessfulRepositoryEvidence(value, kind, repositoryIds) {
+  const items = repositoryEvidenceList(value);
+  const isSuccessful =
+    kind === "apply"
+      ? isSuccessfulApplyEvidence
+      : (item) => isSuccessfulEvidence(item, "check");
+  return [...repositoryIds].every((repositoryId) =>
+    items.some(
+      (item) => item?.repository_id === repositoryId && isSuccessful(item),
+    ),
   );
 }
 
@@ -483,7 +524,10 @@ export function hasApprovedImplementationStart(document) {
 
 export function validateDeliveryTransition(document, fromStatus) {
   const issues = [];
+  const repositories = Array.isArray(document.仓库) ? document.仓库 : [];
+  const repositoryIds = new Set(repositories.map((repository) => repository.id));
   const toStatus = document?.交付状态;
+  const requireAllRepositories = repositories.length > 1;
   const allowed = DELIVERY_TRANSITIONS.get(fromStatus) ?? new Set();
 
   if (fromStatus === toStatus) return issues;
@@ -516,15 +560,19 @@ export function validateDeliveryTransition(document, fromStatus) {
     );
   }
 
+  if (requireAllRepositories) issues.push(...repositoryEvidenceIssues(document));
   const evidence = document.证据索引 ?? {};
   const checks = Array.isArray(evidence.checks) ? evidence.checks : [];
-  const hasSuccessfulCheck = checks.some((item) =>
-    isSuccessfulEvidence(item, "check"),
-  );
+  const hasSuccessfulCheck = requireAllRepositories
+    ? hasSuccessfulRepositoryEvidence(evidence.checks, "check", repositoryIds)
+    : checks.some((item) => isSuccessfulEvidence(item, "check"));
+  const hasSuccessfulApply = requireAllRepositories
+    ? hasSuccessfulRepositoryEvidence(evidence.apply, "apply", repositoryIds)
+    : isSuccessfulApplyEvidence(evidence.apply);
 
   if (
     toStatus === "coding" &&
-    !isSuccessfulApplyEvidence(evidence.apply)
+    !hasSuccessfulApply
   ) {
     addIssue(
       issues,
@@ -703,6 +751,18 @@ export function validateProgress(document) {
   ) {
     addIssue(issues, "invalid-recommended-action", "推荐动作", "推荐动作不是支持的原生动作");
   }
+  if (
+    ["coding", "verified", "reviewed"].includes(document.交付状态) &&
+    ["prepare-workspace", "propose"].includes(document.推荐动作)
+  ) {
+    addIssue(
+      issues,
+      "recommended-action-stale",
+      "推荐动作",
+      `交付状态为 ${document.交付状态} 时推荐动作 ${document.推荐动作} 已过期，应更新为与真实状态一致的动作`,
+      "warning",
+    );
+  }
 
   const collaboration = document.协作;
   if (!collaboration || typeof collaboration !== "object" || Array.isArray(collaboration)) {
@@ -722,6 +782,8 @@ export function validateProgress(document) {
   }
   const repositoryIds = new Set();
   const repositoryBranches = new Set();
+  issues.push(...repositoryEvidenceIssues(document));
+  const requireAllRepositories = repositories.length > 1;
   const repositoryWorktrees = new Set();
   for (const [index, repository] of repositories.entries()) {
     const repositoryPath = `仓库[${index}]`;
@@ -734,6 +796,14 @@ export function validateProgress(document) {
     else if (hasText(repository?.branch)) repositoryBranches.add(repository.branch);
     if (hasText(repository?.worktree) && repositoryWorktrees.has(repository.worktree)) addIssue(issues, "duplicate-repository-worktree", `${repositoryPath}.worktree`, "仓库 worktree 必须唯一");
     else if (hasText(repository?.worktree)) repositoryWorktrees.add(repository.worktree);
+  }
+
+  if (requireAllRepositories && (document.交付状态 === "coding" || document.交付状态 === "verified")) {
+    const evidence = document.证据索引 ?? {};
+    const kind = document.交付状态 === "coding" ? "apply" : "checks";
+    if (!hasSuccessfulRepositoryEvidence(evidence[kind], kind, repositoryIds)) {
+      addIssue(issues, "missing-repository-evidence", `证据索引.${kind}`, `进入 ${document.交付状态} 前每个登记仓库都必须有成功的 ${kind} 证据`);
+    }
   }
 
   if (document.流程状态 === "blocked" && (!Array.isArray(document.阻塞项) || document.阻塞项.length === 0)) {

@@ -10,6 +10,7 @@ import {
   classifyRequest,
 } from "../scripts/request-routing.mjs";
 import {
+  compareRecommendedAction,
   resolveNextAction,
 } from "../scripts/action-resolver.mjs";
 import {
@@ -117,6 +118,62 @@ test("resolves the next evidence gate from the delivery status", () => {
   assert.equal(resolveNextAction({ 交付状态: "ready" }), null);
 });
 
+test("compares the ledger recommended action with the resolved action", () => {
+  const consistent = compareRecommendedAction({
+    交付状态: "not-started",
+    推荐动作: "prepare-workspace",
+    仓库: [{ id: "main", root: "." }],
+  });
+  assert.equal(consistent.consistent, true);
+  assert.equal(consistent.code, null);
+  assert.equal(consistent.ledger, "prepare-workspace");
+  assert.deepEqual(consistent.resolved, {
+    name: "prepare-workspace",
+    targetStatus: "not-started",
+  });
+
+  const readyToApply = compareRecommendedAction({
+    交付状态: "not-started",
+    推荐动作: "apply",
+    用户决策: [
+      { kind: "proposal-confirmation", outcome: "approved" },
+      { kind: "implementation-start", outcome: "approved" },
+    ],
+    仓库: [{ id: "main", root: ".", branch: "feature/story-1001", worktree: ".worktrees/story-1001" }],
+  });
+  assert.equal(readyToApply.consistent, true);
+  assert.equal(readyToApply.code, null);
+});
+
+test("reports a mismatch when the ledger action disagrees with the real state", () => {
+  const mismatch = compareRecommendedAction({
+    交付状态: "coding",
+    推荐动作: "apply",
+  });
+  assert.equal(mismatch.consistent, false);
+  assert.equal(mismatch.code, "recommended-action-mismatch");
+  assert.equal(mismatch.ledger, "apply");
+  assert.deepEqual(mismatch.resolved, { name: "check", targetStatus: "verified" });
+
+  const premature = compareRecommendedAction({
+    交付状态: "not-started",
+    推荐动作: "apply",
+    仓库: [{ id: "main", root: "." }],
+  });
+  assert.equal(premature.consistent, false);
+  assert.equal(premature.code, "recommended-action-mismatch");
+  assert.equal(premature.resolved.name, "prepare-workspace");
+});
+
+test("treats an empty ledger recommended action as consistent", () => {
+  for (const ledger of [null, undefined]) {
+    const result = compareRecommendedAction({ 交付状态: "coding", 推荐动作: ledger });
+    assert.equal(result.consistent, true);
+    assert.equal(result.code, null);
+    assert.equal(result.ledger, ledger ?? null);
+  }
+});
+
 test("starts apply through the automation executor instead of manual stepping", async () => {
   const ledgerPath = await createLedger();
   const calls = [];
@@ -129,6 +186,8 @@ test("starts apply through the automation executor instead of manual stepping", 
   const result = await runUntilReady({
     ledgerPath,
     owner: "alice",
+    reconcile: false,
+    compareRecommendedAction: false,
     executeAction: async (action) => {
       calls.push(action.name);
       if (action.name === "apply") {
@@ -151,6 +210,41 @@ test("starts apply through the automation executor instead of manual stepping", 
   assert.deepEqual(calls, ["apply", "check", "review", "openspec-verify"]);
 });
 
+test("reconciles the ledger against Git before advancing to coding", async () => {
+  const ledgerPath = await createLedger();
+  const reconciled = [];
+  const source = await readFile(ledgerPath, "utf8");
+  await writeFile(ledgerPath, source.replace("交付状态: coding", "交付状态: not-started"));
+
+  const result = await runUntilReady({
+    ledgerPath,
+    owner: "alice",
+    compareRecommendedAction: false,
+    reconcile: (target) => {
+      reconciled.push(target);
+      return { outcome: "consistent", issues: [] };
+    },
+    executeAction: async (action) => {
+      if (action.name === "apply") {
+        return {
+          kind: "apply",
+          command: "apply",
+          exit_code: 0,
+          commit: "abc123",
+          checked_at: "2026-08-17T10:00:00+08:00",
+          summary: "实现任务已完成",
+        };
+      }
+      if (action.name === "check") return evidence("check");
+      if (action.name === "review") return evidence("review", "approved");
+      return evidence("openspec-verify", "passed");
+    },
+  });
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(reconciled, [ledgerPath]);
+});
+
 test("includes configured completed tasks in apply evidence", async () => {
   const executor = createCommandExecutor({
     projectRoot: process.cwd(),
@@ -168,24 +262,93 @@ test("includes configured completed tasks in apply evidence", async () => {
   assert.deepEqual(result.completed_tasks, ["task-1"]);
 });
 
-test("executes a configured command and returns check evidence", async () => {
+test("includes repository_id in evidence for a configured repository action", async () => {
   const executor = createCommandExecutor({
     projectRoot: process.cwd(),
+    commands: { check: { command: process.execPath, args: ["-e", ""] } },
+  });
+  const result = await executor({ name: "check", targetStatus: "verified", repository_id: "backend" });
+  assert.equal(result.repository_id, "backend");
+});
+
+test("aggregates configured commands for all repositories into evidence", async () => {
+  const executor = createCommandExecutor({
+    projectRoot: process.cwd(),
+    repositories: [{ id: "frontend" }, { id: "backend" }],
     commands: {
-      check: {
-        command: process.execPath,
-        args: ["-e", "process.stdout.write('check ok')"],
-      },
+      check: { command: process.execPath, args: ["-e", ""] },
     },
   });
+  const result = await executor({ name: "check", targetStatus: "verified" });
+  assert.equal(result.repositories.length, 2);
+  assert.deepEqual(result.repositories.map((item) => item.repository_id), ["frontend", "backend"]);
+});
 
+
+test("executes each repository command in its worktree and reports its revision", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-repositories-"));
+  const repositories = [];
+  for (const id of ["frontend", "backend"]) {
+    const root = path.join(directory, id);
+    spawnSync("git", ["init", root], { encoding: "utf8" });
+    spawnSync("git", ["-C", root, "config", "user.email", "test@example.com"], { encoding: "utf8" });
+    spawnSync("git", ["-C", root, "config", "user.name", "Test"], { encoding: "utf8" });
+    await writeFile(path.join(root, `${id}.txt`), id);
+    spawnSync("git", ["-C", root, "add", "."], { encoding: "utf8" });
+    spawnSync("git", ["-C", root, "commit", "-m", "init"], { encoding: "utf8" });
+    repositories.push({ id, root });
+  }
+
+  const executor = createCommandExecutor({
+    projectRoot: directory,
+    repositories,
+    commands: {
+      check: { command: process.execPath, args: ["-e", "process.stdout.write(process.cwd())"] },
+    },
+  });
   const result = await executor({ name: "check", targetStatus: "verified" });
 
-  assert.equal(result.kind, "check");
-  assert.equal(result.exit_code, 0);
-  assert.match(result.summary, /check ok/);
-  assert.ok(result.commit);
+  assert.deepEqual(result.repositories.map((item) => item.summary), repositories.map((repo) => path.resolve(repo.root)));
+  assert.deepEqual(result.repositories.map((item) => item.commit), repositories.map((repo) => spawnSync("git", ["-C", repo.root, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim()));
 });
+
+test("supports repository worktree as the preferred command cwd", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-worktrees-"));
+  const root = path.join(directory, "repo");
+  const worktree = path.join(directory, "worktree");
+  spawnSync("git", ["init", root], { encoding: "utf8" });
+  spawnSync("git", ["-C", root, "config", "user.email", "test@example.com"], { encoding: "utf8" });
+  spawnSync("git", ["-C", root, "config", "user.name", "Test"], { encoding: "utf8" });
+  await writeFile(path.join(root, "file.txt"), "init");
+  spawnSync("git", ["-C", root, "add", "."], { encoding: "utf8" });
+  spawnSync("git", ["-C", root, "commit", "-m", "init"], { encoding: "utf8" });
+  spawnSync("git", ["-C", root, "worktree", "add", "-b", "feature", worktree], { encoding: "utf8" });
+
+  const executor = createCommandExecutor({
+    projectRoot: directory,
+    repositories: [{ id: "repo", root, worktree }],
+    commands: { check: { command: process.execPath, args: ["-e", "process.stdout.write(process.cwd())"] } },
+  });
+  const result = await executor({ name: "check", targetStatus: "verified", repository_id: "repo" });
+
+  assert.equal(result.summary, path.resolve(worktree));
+  assert.equal(result.commit, spawnSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim());
+});
+
+
+test("records aggregated repositories evidence into apply and check indexes", async () => {
+  const ledgerPath = await createLedger();
+  const { recordEvidence } = await import("../scripts/record-evidence.mjs");
+  await recordEvidence(ledgerPath, {
+    kind: "apply",
+    repositories: [
+      { repository_id: "main", kind: "apply", command: "apply main", exit_code: 0, checked_at: "2026-08-20T10:00:00+08:00", summary: "main 完成" },
+    ],
+  }, "alice");
+  const document = parseProgressYaml(await readFile(ledgerPath, "utf8"));
+  assert.equal(document.证据索引.apply.repositories[0].repository_id, "main");
+});
+
 
 test("runs the default resolver and configured executor to ready", async () => {
   const ledgerPath = await createLedger();
@@ -217,6 +380,7 @@ test("runs the default resolver and configured executor to ready", async () => {
     ledgerPath,
     owner: "alice",
     projectRoot,
+    compareRecommendedAction: false,
   });
 
   assert.equal(result.status, "ready");
@@ -255,6 +419,7 @@ test("starts automation directly for a clear request", async () => {
     ledgerPath,
     owner: "alice",
     projectRoot,
+    compareRecommendedAction: false,
   });
 
   assert.equal(result.status, "ready");
@@ -322,6 +487,7 @@ test("runs evidence-driven actions until the ledger reaches ready", async () => 
   const result = await runUntilReady({
     ledgerPath,
     owner: "alice",
+    compareRecommendedAction: false,
     resolveNextAction(document) {
       const status = deliveryStatus(document);
       if (status === "coding") return { name: "check", targetStatus: "verified" };
@@ -355,6 +521,7 @@ test("returns the common protocol when confirmation is required", async () => {
   const result = await runUntilReady({
     ledgerPath,
     owner: "alice",
+    compareRecommendedAction: false,
     resolveNextAction() {
       return { name: "apply", targetStatus: "verified" };
     },
@@ -379,6 +546,7 @@ test("stops when an action needs confirmation", async () => {
   const result = await runUntilReady({
     ledgerPath,
     owner: "alice",
+    compareRecommendedAction: false,
     resolveNextAction() {
       return { name: "apply", targetStatus: "verified" };
     },
@@ -403,6 +571,7 @@ test("repairs a failed check before escalating", async () => {
   const result = await runUntilReady({
     ledgerPath,
     owner: "alice",
+    compareRecommendedAction: false,
     executeAction: async (action) => {
       calls.push(action.name);
       if (action.name === "check" && attempts++ === 0) {
@@ -433,6 +602,7 @@ test("escalates after repeated identical failures", async () => {
   const result = await runUntilReady({
     ledgerPath,
     owner: "alice",
+    compareRecommendedAction: false,
     maxRepairAttempts: 2,
     executeAction: async () => ({
       outcome: "failed",
@@ -461,6 +631,7 @@ test("does not auto-repair high-risk review findings", async () => {
   const result = await runUntilReady({
     ledgerPath,
     owner: "alice",
+    compareRecommendedAction: false,
     executeAction: async () => ({
       outcome: "needs_confirmation",
       summary: "评审发现数据库迁移风险",
@@ -474,4 +645,46 @@ test("does not auto-repair high-risk review findings", async () => {
 
   assert.equal(result.status, "needs-confirmation");
   assert.equal(repairCalls.length, 0);
+});
+
+test("blocks before executing when the ledger action conflicts with the real state", async () => {
+  const ledgerPath = await createLedger();
+  const calls = [];
+
+  const result = await runUntilReady({
+    ledgerPath,
+    owner: "alice",
+    async executeAction(action) {
+      calls.push(action.name);
+      return evidence("check");
+    },
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.outcome, "blocked");
+  assert.equal(result.recommended_next, "manual-intervention");
+  assert.ok(result.blockers.length >= 1);
+  assert.match(result.blockers[0], /推荐动作.*冲突/);
+  assert.deepEqual(calls, []);
+  assert.equal(
+    deliveryStatus(parseProgressYaml(await readFile(ledgerPath, "utf8"))),
+    "coding",
+  );
+});
+
+test("skips the recommended-action comparison when injected", async () => {
+  const ledgerPath = await createLedger();
+
+  const result = await runUntilReady({
+    ledgerPath,
+    owner: "alice",
+    compareRecommendedAction: false,
+    async executeAction(action) {
+      if (action.name === "check") return evidence("check");
+      if (action.name === "review") return evidence("review", "approved");
+      return evidence("openspec-verify", "passed");
+    },
+  });
+
+  assert.equal(result.status, "ready");
 });

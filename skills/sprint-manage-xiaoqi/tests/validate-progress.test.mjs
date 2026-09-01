@@ -85,7 +85,7 @@ test("maps TDD evidence from apply onto the completed task", async () => {
         green: { command: "npm test", exit_code: 0, result: "passed", summary: "后通过" },
       },
     }],
-  }, "alice");
+  }, "alice", { reconcile: false });
   const advanced = parseProgressYaml(await readFile(file, "utf8"));
   assert.equal(advanced.任务映射[0].tdd.enabled, true);
 });
@@ -153,14 +153,102 @@ test("accepts an isolated single-person requirement ledger", async () => {
   assert.deepEqual(validateProgress(await fixture("valid-single.yaml")), []);
 });
 
-test("accepts a multi-repository independent requirement ledger", async () => {
+test("requires evidence before a multi-repository ledger can enter coding", async () => {
   const document = await fixture("valid-single.yaml");
   document.协作.模式 = "independent";
   document.仓库 = [
     { id: "frontend", root: "apps/web", branch: "feature/story-1001-web", worktree: ".worktrees/story-1001-web" },
     { id: "backend", root: "services/api", branch: "feature/story-1001-api", worktree: ".worktrees/story-1001-api" },
   ];
-  assert.deepEqual(validateProgress(document), []);
+  assert(validateProgress(document).some((issue) => issue.code === "missing-repository-evidence"));
+});
+
+test("requires successful apply and check evidence for every registered repository", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.协作.模式 = "independent";
+  document.仓库 = [
+    { id: "frontend", root: "apps/web", branch: "feature/web", worktree: ".worktrees/web" },
+    { id: "backend", root: "services/api", branch: "feature/api", worktree: ".worktrees/api" },
+  ];
+  document.证据索引.apply = [{
+    repository_id: "frontend",
+    kind: "apply",
+    command: "apply frontend",
+    exit_code: 0,
+    checked_at: "2026-08-20T10:00:00+08:00",
+    summary: "frontend 完成",
+  }];
+  document.交付状态 = "coding";
+  const codingCodes = new Set(validateProgress(document).map((issue) => issue.code));
+  assert(codingCodes.has("missing-repository-evidence"));
+
+  document.证据索引.apply.push({
+    repository_id: "backend",
+    kind: "apply",
+    command: "apply backend",
+    exit_code: 0,
+    checked_at: "2026-08-20T10:01:00+08:00",
+    summary: "backend 完成",
+  });
+  document.交付状态 = "verified";
+  document.证据索引.checks = [{
+    repository_id: "frontend",
+    kind: "check",
+    command: "check frontend",
+    exit_code: 0,
+    commit: "abc123",
+    checked_at: "2026-08-20T10:02:00+08:00",
+    summary: "frontend 通过",
+  }];
+  const verifiedCodes = new Set(validateProgress(document).map((issue) => issue.code));
+  assert(verifiedCodes.has("missing-repository-evidence"));
+});
+
+test("accepts multi-repository evidence bundled in a repositories array", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.协作.模式 = "independent";
+  document.仓库 = [
+    { id: "frontend", root: "apps/web", branch: "feature/web", worktree: ".worktrees/web" },
+    { id: "backend", root: "services/api", branch: "feature/api", worktree: ".worktrees/api" },
+  ];
+  const evidence = (kind, repository_id) => ({
+    repository_id,
+    kind,
+    command: `${kind} ${repository_id}`,
+    exit_code: 0,
+    commit: "abc123",
+    checked_at: "2026-08-20T10:00:00+08:00",
+    summary: `${repository_id} ${kind} passed`,
+  });
+  document.交付状态 = "verified";
+  document.证据索引.apply = { repositories: [evidence("apply", "frontend"), evidence("apply", "backend")] };
+  document.证据索引.checks = { repositories: [evidence("check", "frontend"), evidence("check", "backend")] };
+  assert(!validateProgress(document).some((issue) => issue.code === "missing-repository-evidence"));
+});
+
+test("rejects bundled evidence with missing or unknown repository ids", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.协作.模式 = "independent";
+  document.仓库 = [
+    { id: "frontend", root: "apps/web", branch: "feature/web", worktree: ".worktrees/web" },
+    { id: "backend", root: "services/api", branch: "feature/api", worktree: ".worktrees/api" },
+  ];
+  document.证据索引.apply = { repositories: [{ kind: "apply", command: "apply", exit_code: 0, commit: "abc", checked_at: "now", summary: "bad" }, { repository_id: "unknown", kind: "apply", command: "apply", exit_code: 0, commit: "abc", checked_at: "now", summary: "bad" }] };
+  assert(validateProgress(document).some((issue) => issue.code === "missing-repository-evidence" || issue.code === "unknown-repository-evidence"));
+});
+
+test("rejects evidence for an unknown repository", async () => {
+  const document = await fixture("valid-single.yaml");
+  document.证据索引.apply = [{
+    repository_id: "unknown",
+    kind: "apply",
+    command: "apply unknown",
+    exit_code: 0,
+    checked_at: "2026-08-20T10:00:00+08:00",
+    summary: "未知仓库",
+  }];
+  const codes = new Set(validateProgress(document).map((issue) => issue.code));
+  assert(codes.has("unknown-repository-evidence"));
 });
 
 test("rejects removed collaboration fields and invalid repository entries", async () => {
@@ -212,6 +300,48 @@ test("allows explore and propose before a branch or worktree exists", async () =
   );
 });
 
+test("flags stale recommended actions after implementation has started", async () => {
+  for (const status of ["coding", "verified", "reviewed"]) {
+    for (const action of ["prepare-workspace", "propose"]) {
+      const document = await fixture("valid-single.yaml");
+      document.交付状态 = status;
+      document.推荐动作 = action;
+      assert(
+        validateProgress(document).some(
+          (issue) => issue.code === "recommended-action-stale",
+        ),
+        `${status} + ${action} should be flagged as stale`,
+      );
+    }
+  }
+});
+
+test("accepts recommended actions that match the delivery stage", async () => {
+  const implementing = await fixture("valid-single.yaml");
+  assert(
+    !validateProgress(implementing).some(
+      (issue) => issue.code === "recommended-action-stale",
+    ),
+  );
+
+  const early = await fixture("valid-single.yaml");
+  early.交付状态 = "not-started";
+  early.推荐动作 = "propose";
+  assert(
+    !validateProgress(early).some(
+      (issue) => issue.code === "recommended-action-stale",
+    ),
+  );
+
+  const empty = await fixture("valid-single.yaml");
+  empty.推荐动作 = null;
+  assert(
+    !validateProgress(empty).some(
+      (issue) => issue.code === "recommended-action-stale",
+    ),
+  );
+});
+
 test("rejects coding ledgers without an approved proposal decision", async () => {
   const document = await fixture("valid-single.yaml");
   document.用户决策 = [];
@@ -254,7 +384,7 @@ test("rejects coding without an approved implementation-start decision in valida
       exit_code: 0,
       checked_at: "2026-08-20T09:00:00+08:00",
       summary: "实现已开始",
-    }, "alice"),
+    }, "alice", { reconcile: false }),
     /missing-implementation-start-approval/,
   );
 });
@@ -402,7 +532,7 @@ test("advance command maps completed apply tasks onto the ledger", async () => {
     checked_at: "2026-08-20T09:00:00+08:00",
     summary: "task-1 已完成",
     completed_tasks: ["task-1"],
-  }, "alice");
+  }, "alice", { reconcile: false });
 
   const advanced = parseProgressYaml(await readFile(file, "utf8"));
   assert.equal(advanced.任务映射[0].status, "completed");
@@ -429,12 +559,77 @@ test("advance command records successful apply evidence when coding starts", asy
       summary: "实现已开始",
     },
     "alice",
+    { reconcile: false },
   );
 
   const advanced = parseProgressYaml(await readFile(file, "utf8"));
   assert.equal(advanced.交付状态, "coding");
   assert.equal(advanced.证据索引.apply.kind, "apply");
   assert.equal(advanced.事件日志.at(-1).evidence_kind, "apply");
+});
+
+test("advance to coding is rejected when reconciliation reports inconsistency", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-reconcile-reject-"));
+  const file = path.join(directory, "story-1001.yaml");
+  const source = (await fixtureSource("valid-single.yaml")).replace(
+    "交付状态: coding",
+    "交付状态: not-started",
+  );
+  await writeFile(file, source);
+
+  assert.throws(
+    () => advanceProgress(
+      file,
+      "coding",
+      {
+        kind: "apply",
+        command: "openspec apply story-1001",
+        exit_code: 0,
+        checked_at: "2026-08-20T09:00:00+08:00",
+        summary: "实现已开始",
+      },
+      "alice",
+      {
+        reconcile: () => ({
+          outcome: "inconsistent",
+          issues: [
+            { repository_id: "main", code: "worktree-missing", message: "工作区目录不存在" },
+          ],
+        }),
+      },
+    ),
+    /worktree-missing/,
+  );
+
+  assert.equal(parseProgressYaml(await readFile(file, "utf8")).交付状态, "not-started");
+  assert.equal(existsSync(`${file}.lock`), false);
+});
+
+test("advance to coding proceeds when injected reconciliation reports consistency", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-reconcile-pass-"));
+  const file = path.join(directory, "story-1001.yaml");
+  const source = (await fixtureSource("valid-single.yaml")).replace(
+    "交付状态: coding",
+    "交付状态: not-started",
+  );
+  await writeFile(file, source);
+
+  advanceProgress(
+    file,
+    "coding",
+    {
+      kind: "apply",
+      command: "openspec apply story-1001",
+      exit_code: 0,
+      checked_at: "2026-08-20T09:00:00+08:00",
+      summary: "实现已开始",
+    },
+    "alice",
+    { reconcile: () => ({ outcome: "consistent", issues: [] }) },
+  );
+
+  const advanced = parseProgressYaml(await readFile(file, "utf8"));
+  assert.equal(advanced.交付状态, "coding");
 });
 
 test("advance API enforces the complete evidence chain", async () => {
