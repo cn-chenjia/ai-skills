@@ -69,7 +69,7 @@ CLI 命令；后者用于更新 OpenSpec instruction 文件，不能拿来修改
 
 ## 多需求与多仓库路径
 
-同一用户可以并行推进多个需求；每个需求独立使用一个 OpenSpec change 和一个全局账本文件。单个需求可以登记多个仓库，进入 `apply` 前必须为每个仓库确认 `root`、branch 和 worktree，且不得与其他 active 需求复用。
+同一用户可以并行推进多个需求；每个需求独立使用一个 OpenSpec change 和一个全局账本文件。单个需求可以登记多个仓库，进入 `apply` 前必须为每个仓库确认 `root`、branch 和 worktree，且不得与其他 active 需求复用。准备 worktree 前，基准分支按 `项目 .xiaoqi/config.yaml` 的 `baseBranch` > 账本仓库条目的 `baseBranch` 取值；两者均未配置时，先向用户提供候选分支并请求选择，确定后把选择写入 `.xiaoqi/config.yaml` 的 `baseBranch` 或账本仓库条目，再运行 `prepare-workspace`。
 
 流程：
 

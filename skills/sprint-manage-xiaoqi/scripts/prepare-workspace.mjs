@@ -101,15 +101,46 @@ function readProjectConfig(projectRoot) {
   return config;
 }
 
-function detectBaseBranch(projectRoot, configured) {
-  // 优先级：账本显式配置 > 项目 .xiaoqi/config.yaml > origin/HEAD > main/master 兜底
-  if (configured) {
-    if (!branchExists(projectRoot, configured)) {
-      throw new Error(`基线分支不存在: ${configured}`);
-    }
-    return configured;
+export function detectDefaultBaseBranch(projectRoot) {
+  // 只做自动探测，不参与配置决策：origin/HEAD > main/master > 全部本地分支（作为候选）
+  const remoteHead = runGit(
+    projectRoot,
+    ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+    { allowFailure: true },
+  );
+  // 只在 symbolic-ref 干净返回时采用，有 broken ref 告警时跳过，不静默采用
+  let baseBranch = null;
+  if (
+    remoteHead.status === 0 &&
+    !remoteHead.stderr.includes("broken ref") &&
+    !remoteHead.stderr.includes("ignoring")
+  ) {
+    const branch = remoteHead.stdout.trim().replace(/^origin\//, "");
+    if (branch && branchExists(projectRoot, branch)) baseBranch = branch;
   }
 
+  const candidates = new Set(
+    ["main", "master"].filter((branch) => branchExists(projectRoot, branch)),
+  );
+  if (baseBranch) candidates.add(baseBranch);
+  if (!baseBranch) {
+    const allBranches = runGit(
+      projectRoot,
+      ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+      { allowFailure: true },
+    );
+    if (allBranches.status === 0) {
+      for (const name of allBranches.stdout.split(/\r?\n/)) {
+        const trimmed = name.trim();
+        if (trimmed) candidates.add(trimmed);
+      }
+    }
+  }
+  return { baseBranch, candidates: [...candidates] };
+}
+
+function detectBaseBranch(projectRoot, configured) {
+  // 优先级：项目 .xiaoqi/config.yaml > 账本仓库条目 > 请求用户选择
   const projectConfig = readProjectConfig(projectRoot);
   if (projectConfig.baseBranch) {
     if (!branchExists(projectRoot, projectConfig.baseBranch)) {
@@ -120,28 +151,24 @@ function detectBaseBranch(projectRoot, configured) {
     return projectConfig.baseBranch;
   }
 
-  const remoteHead = runGit(
-    projectRoot,
-    ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-    { allowFailure: true },
-  );
-  // 只在 symbolic-ref 干净返回时采用，有 broken ref 告警时跳过，不静默采用
-  if (
-    remoteHead.status === 0 &&
-    !remoteHead.stderr.includes("broken ref") &&
-    !remoteHead.stderr.includes("ignoring")
-  ) {
-    const branch = remoteHead.stdout.trim().replace(/^origin\//, "");
-    if (branch && branchExists(projectRoot, branch)) return branch;
+  if (configured) {
+    if (!branchExists(projectRoot, configured)) {
+      throw new Error(`基线分支不存在: ${configured}`);
+    }
+    return configured;
   }
 
-  const candidates = ["main", "master"].filter((branch) =>
-    branchExists(projectRoot, branch),
+  const { baseBranch: defaultBranch, candidates } = detectDefaultBaseBranch(
+    projectRoot,
   );
-  if (candidates.length === 1) return candidates[0];
-  throw new Error(
-    "无法唯一确定基线分支，请在仓库条目中填写 baseBranch，或在项目根目录创建 .xiaoqi/config.yaml 指定 baseBranch",
+  const error = new Error(
+    `未配置基线分支，需要用户选择（候选: ${candidates.length ? candidates.join(", ") : "无可用分支"}）。` +
+      "可在仓库条目中填写 baseBranch，或在项目根目录创建 .xiaoqi/config.yaml 指定 baseBranch。",
   );
+  error.code = "BASE_BRANCH_REQUIRED";
+  error.candidates = candidates;
+  error.defaultBranch = defaultBranch;
+  throw error;
 }
 
 function buildBranchName(document, projectRoot, repository) {
@@ -317,9 +344,15 @@ export function prepareWorkspaces(ledgerPath, projectRoot, owner) {
     const rollbackNote = rollbackFailures.length > 0
       ? `；回滚失败，请手动清理: ${rollbackFailures.join("；")}`
       : "";
-    throw new Error(
+    const wrapped = new Error(
       `准备工作区失败，已回滚本次新建的工作区与分支: ${error.message}${rollbackNote}`,
     );
+    if (error.code) {
+      wrapped.code = error.code;
+      wrapped.candidates = error.candidates;
+      wrapped.defaultBranch = error.defaultBranch;
+    }
+    throw wrapped;
   }
   const updatedRepositories = repositories.map((repository, index) => ({
     ...repository,
@@ -468,7 +501,18 @@ function runCli(args) {
     console.log(JSON.stringify(prepareWorkspaces(...args)));
     return 0;
   } catch (error) {
-    console.error(error.message);
+    if (error.code === "BASE_BRANCH_REQUIRED") {
+      console.error(
+        JSON.stringify({
+          code: error.code,
+          message: error.message,
+          defaultBranch: error.defaultBranch ?? null,
+          candidates: error.candidates ?? [],
+        }),
+      );
+    } else {
+      console.error(error.message);
+    }
     return 1;
   }
 }

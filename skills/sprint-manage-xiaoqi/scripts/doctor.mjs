@@ -9,6 +9,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { getRequirementsDir } from "./ledger-paths.mjs";
+import { detectDefaultBaseBranch } from "./prepare-workspace.mjs";
 
 const RUNTIME_FILES = [
   "initialize-requirement.mjs",
@@ -241,6 +242,7 @@ export async function runDoctor(
   const nodeResult = commandRunner(projectRoot, ["node", "-v"]);
   const openSpecVersion = commandRunner(projectRoot, ["openspec", "--version"]);
   const openSpecContext = commandRunner(projectRoot, ["openspec", "context", "--json"]);
+  const defaultBase = detectDefaultBaseBranch(projectRoot);
   const checks = {
     nodejs: nodeResult.ok
       ? check("pass", "Node.js 可用", nodeResult.output)
@@ -262,6 +264,23 @@ export async function runDoctor(
     openSpecContext: openSpecContext.ok
       ? check("pass", "OpenSpec 项目上下文可用", openSpecContext.output)
       : check("warn", "OpenSpec 项目上下文不可用", openSpecContext.message),
+    baseBranch: defaultBase.baseBranch
+      ? check(
+          "pass",
+          `当前基准分支: ${defaultBase.baseBranch}`,
+          "可在仓库条目 baseBranch 或 .xiaoqi/config.yaml 中显式覆盖",
+        )
+      : defaultBase.candidates.length
+        ? check(
+            "warn",
+            "未配置基准分支，需要用户选择",
+            `候选分支: ${defaultBase.candidates.join(", ")}（可在 .xiaoqi/config.yaml 指定 baseBranch）`,
+          )
+        : check(
+            "warn",
+            "未配置基准分支",
+            "无法探测到可用分支，或当前目录不是 Git 仓库",
+          ),
   };
   return {
     ok: Object.values(checks).every((result) => result.status !== "fail"),

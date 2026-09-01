@@ -32,6 +32,7 @@ test("环境检查只检查六项基础依赖并使用新的全局目录", async
     "ledger",
     "skills",
     "openSpecContext",
+    "baseBranch",
   ]);
   assert.deepEqual(commands.map(({ args }) => args.join(" ")), [
     "node -v",
@@ -39,4 +40,7 @@ test("环境检查只检查六项基础依赖并使用新的全局目录", async
     "openspec context --json",
   ]);
   assert.equal(result.checks.ledger.status, "pass");
+  // 临时目录不是 Git 仓库，基准分支检查应输出告知或提醒，但不影响环境检查结果
+  assert.notEqual(result.checks.baseBranch.status, "fail");
+  assert.match(result.checks.baseBranch.message, /基准分支/);
 });

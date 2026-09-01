@@ -80,7 +80,7 @@ updated_by: "alice"
     root: "."
     branch: null
     worktree: null
-    baseBranch: null
+    baseBranch: "main"
 依赖需求: []
 冲突键: []
 影响范围:
@@ -272,7 +272,7 @@ test("prepares a single top-level repository entry", async () => {
   const projectRoot = await createProject();
   const ledgerPath = await writeLedger(projectRoot, "story-2001");
   const source = await readFile(ledgerPath, "utf8");
-  await writeFile(ledgerPath, `${source.replace(/协作:\n[\s\S]*?依赖需求:/, `协作:\n  模式: single\n  负责人: "alice"\n仓库:\n  - id: "main"\n    root: "."\n    branch: null\n    worktree: null\n依赖需求:`)}`);
+  await writeFile(ledgerPath, `${source.replace(/协作:\n[\s\S]*?依赖需求:/, `协作:\n  模式: single\n  负责人: "alice"\n仓库:\n  - id: "main"\n    root: "."\n    branch: null\n    worktree: null\n    baseBranch: "main"\n依赖需求:`)}`);
   git(projectRoot, "commit", "--allow-empty", "-m", "add repository ledger");
 
   const result = await prepareWorkspaces(ledgerPath, projectRoot, "alice");
@@ -291,7 +291,7 @@ test("prepares every repository and writes branches back to one global ledger", 
   const secondaryRoot = await createSecondaryProject(path.dirname(projectRoot), `secondary-${path.basename(projectRoot)}`);
   const ledgerPath = await writeLedger(projectRoot, "story-2002");
   const source = await readFile(ledgerPath, "utf8");
-  await writeFile(ledgerPath, source.replace(/协作:\n[\s\S]*?依赖需求:/, `协作:\n  模式: single\n  负责人: "alice"\n仓库:\n  - id: "main"\n    root: "."\n    branch: null\n    worktree: null\n  - id: "secondary"\n    root: "../${path.basename(secondaryRoot)}"\n    branch: null\n    worktree: null\n依赖需求:`));
+  await writeFile(ledgerPath, source.replace(/协作:\n[\s\S]*?依赖需求:/, `协作:\n  模式: single\n  负责人: "alice"\n仓库:\n  - id: "main"\n    root: "."\n    branch: null\n    worktree: null\n    baseBranch: "main"\n  - id: "secondary"\n    root: "../${path.basename(secondaryRoot)}"\n    branch: null\n    worktree: null\n    baseBranch: "main"\n依赖需求:`));
   git(projectRoot, "commit", "--allow-empty", "-m", "add multi repository ledger");
 
   const result = await prepareWorkspaces(ledgerPath, projectRoot, "alice");
@@ -337,7 +337,7 @@ test("rollback keeps reused worktrees while removing only newly created ones", a
   const secondaryRoot = await createSecondaryProject(path.dirname(projectRoot), `secondary-reuse-${path.basename(projectRoot)}`);
   const ledgerPath = await writeLedger(projectRoot, "story-reuse");
   const source = await readFile(ledgerPath, "utf8");
-  await writeFile(ledgerPath, source.replace(/仓库:\n[\s\S]*?依赖需求:/, `仓库:\n  - id: "main"\n    root: "."\n    branch: null\n    worktree: null\n  - id: "secondary"\n    root: "../${path.basename(secondaryRoot)}"\n    branch: null\n    worktree: null\n依赖需求:`));
+  await writeFile(ledgerPath, source.replace(/仓库:\n[\s\S]*?依赖需求:/, `仓库:\n  - id: "main"\n    root: "."\n    branch: null\n    worktree: null\n    baseBranch: "main"\n  - id: "secondary"\n    root: "../${path.basename(secondaryRoot)}"\n    branch: null\n    worktree: null\n    baseBranch: "main"\n依赖需求:`));
 
   await prepareWorkspaces(ledgerPath, projectRoot, "alice");
   const mainWorktree = path.join(projectRoot, ".worktrees", "story-reuse");
@@ -541,4 +541,41 @@ test("keeps the current worktree untouched when it has uncommitted changes", asy
   assert.equal(ledger.仓库[0].branch, "feature/story-1001");
   assert.equal(ledger.仓库[0].worktree, path.join(".worktrees", "story-1001"));
   assert.equal(ledger.仓库[0].baseBranch, "main");
+});
+
+test("asks the user to choose a base branch when neither the ledger nor project config sets one", async () => {
+  const projectRoot = await createProject();
+  const ledgerPath = await writeLedger(projectRoot, "story-base-required");
+  const source = await readFile(ledgerPath, "utf8");
+  await writeFile(
+    ledgerPath,
+    source.replace('    baseBranch: "main"', "    baseBranch: null"),
+  );
+  git(projectRoot, "commit", "--allow-empty", "-m", "add requirement without base branch");
+  assert.equal(existsSync(path.join(projectRoot, ".xiaoqi", "config.yaml")), false);
+
+  const result = prepare(ledgerPath, projectRoot);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /BASE_BRANCH_REQUIRED/);
+  assert.match(result.stderr, /main/);
+  assert.equal(existsSync(path.join(projectRoot, ".worktrees", "story-base-required")), false);
+});
+
+test("prefers the project config base branch over the ledger repository entry", async () => {
+  const projectRoot = await createProject();
+  git(projectRoot, "branch", "develop");
+  const ledgerPath = await writeLedger(projectRoot, "story-config-precedence");
+  await mkdir(path.join(projectRoot, ".xiaoqi"), { recursive: true });
+  await writeFile(path.join(projectRoot, ".xiaoqi", "config.yaml"), 'baseBranch: "develop"\n');
+  git(projectRoot, "commit", "--allow-empty", "-m", "add project config");
+
+  const result = prepare(ledgerPath, projectRoot);
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.baseBranch, "develop");
+  assert.equal(git(output.worktree, "branch", "--show-current"), "feature/story-config-precedence");
+  const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
+  assert.equal(ledger.仓库[0].baseBranch, "develop");
 });
