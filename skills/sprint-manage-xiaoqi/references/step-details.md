@@ -16,18 +16,18 @@
 
 小七先读取 OpenSpec 原生状态，再根据用户意图路由：
 
-| 用户意图 | 推荐动作 | 责任方 | 需调用的能力面 |
-| --- | --- | --- | --- |
-| 调查问题、比较方向 | `explore` | OpenSpec；由小七保持流程所有权 | 需求澄清、事实收集与方向比较 |
-| 创建或完善 change | `propose` | OpenSpec | 提案与设计撰写 |
-| 按 tasks 实现 | `apply` | OpenSpec 提供任务，Superpowers 提供执行纪律 | TDD（先失败后通过）、调试、最小实现、项目测试运行 |
-| 开发中需求或设计变化 | `update` | OpenSpec | 变更拆解与任务重排 |
-| 检查代码质量和规格一致性 | `verify` | 项目工具 + Superpowers + OpenSpec | 验证、测试/构建/静态检查、规格一致性核对 |
-| 提前同步变更规格 | `sync` | OpenSpec | 规格同步 |
-| 归档 change | `archive` | OpenSpec；由主技能重新路由 | 归档操作 |
-| 创建 PR、合并或保留分支 | `finish` | Superpowers；由主技能重新路由 | 代码评审、分支收尾、PR 与合并操作 |
+| 用户意图 | 推荐动作 | 责任方 | 首选宿主技能 | 需调用的能力面 |
+| --- | --- | --- | --- | --- |
+| 调查问题、比较方向 | `explore` | OpenSpec；由小七保持流程所有权 | `openspec-explore` | 需求澄清、事实收集与方向比较 |
+| 创建或完善 change | `propose` | OpenSpec | `openspec-propose` | 提案与设计撰写 |
+| 按 tasks 实现 | `apply` | OpenSpec 提供任务，Superpowers 提供执行纪律 | `test-driven-development` 逐任务执行；关闭 TDD 的任务用 `executing-plans` | TDD（先失败后通过）、调试、最小实现、项目测试运行 |
+| 开发中需求或设计变化 | `update` | OpenSpec | `openspec-update-change` | 变更拆解与任务重排 |
+| 检查代码质量和规格一致性 | `verify` | 项目工具 + Superpowers + OpenSpec | `verification-before-completion`；评审用 `requesting-code-review` | 验证、测试/构建/静态检查、规格一致性核对 |
+| 提前同步变更规格 | `sync` | OpenSpec | `openspec-sync-specs` | 规格同步 |
+| 归档 change | `archive` | OpenSpec；由主技能重新路由 | `openspec-archive-change` | 归档操作 |
+| 创建 PR、合并或保留分支 | `finish` | Superpowers；由主技能重新路由 | `finishing-a-development-branch` | 代码评审、分支收尾、PR 与合并操作 |
 
-能力面是能力类别，不是技能或工具名称；具体能力由宿主环境在对应时机自动匹配。每次进入动作时，小七只负责确认该动作需要的能力面，不点名具体技能，执行完成后返回主技能。
+"首选宿主技能"是当前环境可直接调用的技能名，进入动作时优先直接调用；宿主环境缺失对应技能时，回退到能力面，由当前模型用等价方式（如 OpenSpec CLI、项目工具）完成，并在 summary 中说明降级原因。技能只是执行组件，流程控制权仍在小七；执行完成后必须返回主技能。
 
 `explore -> propose -> apply -> update -> verify -> sync -> archive` 是动作集合，
 不是强制阶段链。是否可执行以 OpenSpec status 和 instructions 为准。
