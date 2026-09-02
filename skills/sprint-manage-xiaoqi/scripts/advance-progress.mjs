@@ -58,6 +58,46 @@ const EVIDENCE_SCHEMA = {
   },
 };
 
+// 从 EVIDENCE_SCHEMA 单一事实源生成该 kind 的证据速查输出（--schema 模式）
+function buildSchemaOutput(kind) {
+  const schema = EVIDENCE_SCHEMA[kind];
+  if (!schema) {
+    throw new Error(
+      `不支持的证据类型: ${kind}（合法值: ${Object.keys(EVIDENCE_SCHEMA).join(", ")}）`,
+    );
+  }
+  const constraints = { exit_code: 0 };
+  if (schema.resultMustBe) constraints.result = schema.resultMustBe;
+  if (schema.allowedResults) {
+    constraints.result = schema.allowedResults;
+    constraints.result_must_equal = "目标交付状态";
+  }
+  if (schema.allowedOutcomes) constraints.outcome = schema.allowedOutcomes;
+  if (kind === "archive") constraints.path = "非空字符串";
+
+  const placeholders = {
+    kind,
+    command: "<实际执行的命令>",
+    exit_code: 0,
+    commit: "<git commit>",
+    checked_at: "<ISO8601 时间戳>",
+    summary: "<执行结果摘要>",
+    result: schema.resultMustBe ?? "<pr-open/merged/kept，须等于目标交付状态>",
+    outcome: "completed",
+    path: "<openspec archive 路径>",
+  };
+  const template = {};
+  for (const field of schema.required) template[field] = placeholders[field];
+
+  return {
+    kind,
+    required: schema.required,
+    optional: schema.optional ?? [],
+    constraints,
+    template,
+  };
+}
+
 export function validateEvidence(evidence, targetStatus) {
   if (!evidence || typeof evidence !== "object") {
     throw new Error("证据必须是 JSON 对象");
@@ -440,6 +480,24 @@ export function advanceProgress(filePath, targetStatus, evidence, owner, options
 }
 
 function runCli(args) {
+  // --schema <kind>：输出该 kind 的必需字段 JSON 模板后退出（纯只读，不触碰任何账本文件）
+  const schemaIndex = args.indexOf("--schema");
+  if (schemaIndex >= 0) {
+    const kind = args[schemaIndex + 1];
+    if (!kind) {
+      console.error("用法: node advance-progress.mjs --schema <kind>");
+      console.error(`合法 kind: ${Object.keys(EVIDENCE_SCHEMA).join(", ")}`);
+      return 2;
+    }
+    try {
+      console.log(JSON.stringify(buildSchemaOutput(kind)));
+      return 0;
+    } catch (error) {
+      console.error(error.message);
+      return 1;
+    }
+  }
+
   // 支持 --dry-run 可选 flag
   const dryRun = args.includes("--dry-run");
   const positional = args.filter((a) => a !== "--dry-run");
@@ -450,6 +508,9 @@ function runCli(args) {
     );
     console.error(
       "  --dry-run  只校验证据与状态迁移合法性，不实际写入账本",
+    );
+    console.error(
+      `  --schema <kind>  输出该证据类型的必需字段模板（只读）: ${Object.keys(EVIDENCE_SCHEMA).join(", ")}`,
     );
     return 2;
   }

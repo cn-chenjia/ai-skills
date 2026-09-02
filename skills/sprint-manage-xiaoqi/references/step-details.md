@@ -71,7 +71,7 @@ CLI 命令；后者用于更新 OpenSpec instruction 文件，不能拿来修改
 
 ## 多需求与多仓库路径
 
-同一用户可以并行推进多个需求；每个需求独立使用一个 OpenSpec change 和一个全局账本文件。单个需求可以登记多个仓库，进入 `apply` 前必须为每个仓库确认 `root`、branch 和 worktree，且不得与其他 active 需求复用。准备 worktree 前，基准分支按 `项目 .xiaoqi/config.yaml` 的 `baseBranch` > 账本仓库条目的 `baseBranch` 取值；两者均未配置时，先向用户提供候选分支并请求选择，确定后把选择写入 `.xiaoqi/config.yaml` 的 `baseBranch` 或账本仓库条目，再运行 `prepare-workspace`。
+同一用户可以并行推进多个需求；每个需求独立使用一个 OpenSpec change 和一个全局账本文件。单个需求可以登记多个仓库，进入 `apply` 前必须为每个仓库确认 `root`、branch 和 worktree，且不得与其他 active 需求复用。准备 worktree 前，基准分支按 `项目 .xiaoqi/config.yaml` 的 `baseBranch` > 账本仓库条目的 `baseBranch` > 同仓库历史账本 baseBranch 的众数 > 仓库当前 HEAD 分支 的顺序自动继承；均未命中时，先向用户提供候选分支并请求选择，确定后把选择写入 `.xiaoqi/config.yaml` 的 `baseBranch` 或账本仓库条目，再运行 `prepare-workspace`。
 
 流程：
 
@@ -152,6 +152,16 @@ OpenSpec verify：
 确认项目验证、已批准的评审和 OpenSpec verify 已满足当前风险要求后，状态到达 `ready`。
 到达 `ready` 后停止连续执行，返回主技能，并将 `recommended_next` 指向
 抽象意图 `closing`，由主技能重新路由。
+
+## 提前合并/推送指令
+
+用户在交付状态 `ready` 之前要求合并分支或推送远程时（典型场景：联调验证需要提前部署目标分支）：
+
+- 尊重用户对仓库的处置权：先执行 git 合并/推送，不因门禁未满足而拒绝物理操作。
+- 必须在账本事件日志立即记录 `kind: early-merge` 事件，注明"门禁后置"与提前合并的原因，保持账本与物理事实的时序一致。
+- 明确告知用户：交付状态保持不变，收尾推进 `verified→merged` 前仍需补齐 check、review、openspec-verify 证据，门禁不可豁免、不可伪造。
+- 禁止把 early-merge 事件当作 finish 证据使用；收尾按真实交付状态与证据推进。
+- 执行完成后返回主技能，重新读取账本与 OpenSpec 状态，再决定下一动作。
 
 ## Bug 修复
 

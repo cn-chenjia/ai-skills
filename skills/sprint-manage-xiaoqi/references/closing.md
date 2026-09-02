@@ -11,6 +11,9 @@
 
 进入收尾前依次确认：
 
+0. tasks 完整性核对：运行 `openspec list` 确认目标 change 显示 ✓ Complete；
+   非 Complete 时先逐项核对 tasks.md 勾选与已交付事实一致，修复后再进入归档；
+   勾选状态不得为凑数而标记，须有对应交付证据。
 1. 项目测试、构建和静态检查通过；
 2. code review 已批准；
 3. OpenSpec verify 已通过；

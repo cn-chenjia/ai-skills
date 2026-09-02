@@ -846,3 +846,70 @@ test("public documentation explains collaboration conflict prevention", async (c
   assert.match(description, /独立.*branch.*worktree/s);
   assert.match(description, /依赖循环|写入范围冲突/);
 });
+
+test("advance command prints the evidence schema template for --schema", () => {
+  const output = JSON.parse(
+    execFileSync(
+      process.execPath,
+      ["sprint-manage-xiaoqi/scripts/advance-progress.mjs", "--schema", "apply"],
+      { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" },
+    ),
+  );
+
+  assert.equal(output.kind, "apply");
+  assert.deepEqual(output.required, [
+    "kind",
+    "command",
+    "exit_code",
+    "checked_at",
+    "summary",
+  ]);
+  assert.deepEqual(Object.keys(output.template), output.required);
+  assert.equal(output.template.exit_code, 0);
+});
+
+test("advance command covers every supported evidence kind with complete templates", () => {
+  const expected = {
+    apply: ["kind", "command", "exit_code", "checked_at", "summary"],
+    check: ["kind", "command", "exit_code", "commit", "checked_at", "summary"],
+    review: ["kind", "command", "exit_code", "commit", "checked_at", "summary", "result"],
+    "openspec-verify": ["kind", "command", "exit_code", "commit", "checked_at", "summary", "result"],
+    finish: ["kind", "command", "exit_code", "commit", "checked_at", "summary", "result", "outcome"],
+    archive: ["kind", "command", "exit_code", "checked_at", "summary", "path", "outcome"],
+  };
+
+  for (const [kind, requiredFields] of Object.entries(expected)) {
+    const output = JSON.parse(
+      execFileSync(
+        process.execPath,
+        ["sprint-manage-xiaoqi/scripts/advance-progress.mjs", "--schema", kind],
+        { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" },
+      ),
+    );
+    assert.deepEqual(output.required, requiredFields, `${kind} 必需字段清单`);
+    for (const field of requiredFields) {
+      assert.ok(output.template[field] !== undefined, `${kind} 模板缺字段 ${field}`);
+    }
+    assert.equal(output.constraints.exit_code, 0);
+    if (kind === "review") assert.equal(output.constraints.result, "approved");
+    if (kind === "openspec-verify") assert.equal(output.constraints.result, "passed");
+    if (kind === "finish") assert.deepEqual(output.constraints.outcome, ["passed", "completed", "archived"]);
+    if (kind === "archive") assert.deepEqual(output.constraints.outcome, ["passed", "completed", "archived"]);
+  }
+});
+
+test("advance command rejects --schema for an unsupported kind", () => {
+  let failure;
+  try {
+    execFileSync(
+      process.execPath,
+      ["sprint-manage-xiaoqi/scripts/advance-progress.mjs", "--schema", "deploy"],
+      { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" },
+    );
+  } catch (error) {
+    failure = error;
+  }
+  assert.ok(failure, "非法 kind 必须以非零退出码失败");
+  assert.equal(failure.status, 1);
+  assert.match(failure.stderr, /apply.*check.*review.*openspec-verify.*finish.*archive/);
+});

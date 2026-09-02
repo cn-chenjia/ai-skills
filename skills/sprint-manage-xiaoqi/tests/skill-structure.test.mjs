@@ -94,6 +94,10 @@ test("routes every focused reference from the main skill", async () => {
       "references/step-details.md",
     ],
     [
+      "`ready` 前用户要求合并分支或推送远程",
+      "references/step-details.md",
+    ],
+    [
       "已到 `ready`；PR、合并、保留、归档、关闭需求或关闭整个迭代",
       "references/closing.md",
     ],
@@ -108,7 +112,7 @@ test("routes every focused reference from the main skill", async () => {
     /^\| (.*?) \| \[[^\]]+\]\(([^)]+)\) \|$/gm,
   )].map((match) => [match[1], match[2]]);
   assert.deepEqual(routes, expectedRoutes);
-  assert.equal(routes.length, 4);
+  assert.equal(routes.length, 5);
 });
 
 test("requires every reference to return control to the main skill", async () => {
@@ -214,4 +218,41 @@ test("returns simple and complex paths to the main skill at ready", async () => 
     const afterReady = pathText.split("ready").slice(1).join("ready");
     assert.doesNotMatch(afterReady, /archive|finish/i);
   }
+});
+
+test("documents pre-ready merge instructions with deferred evidence gates", async () => {
+  const skill = await readSkillFile("SKILL.md");
+  const steps = await readSkillFile("references/step-details.md");
+
+  assert.match(
+    skill,
+    /\| `ready` 前用户要求合并分支或推送远程 \| \[step-details\.md\]\(references\/step-details\.md\) \|/,
+  );
+
+  const section = steps.match(
+    /## 提前合并\/推送指令\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(section, "step-details.md 应包含「提前合并/推送指令」小节");
+
+  assert.match(section, /kind: early-merge/);
+  assert.match(section, /门禁后置/);
+  assert.match(section, /原因/);
+  assert.match(section, /交付状态保持不变/);
+  assert.match(section, /门禁不可豁免、不可伪造/);
+  assert.match(section, /禁止[^。\n]*early-merge[^。\n]*finish/);
+});
+
+test("requires tasks completeness check before archive", async () => {
+  const closing = await readSkillFile("references/closing.md");
+  const section = closing.match(
+    /## 收尾检查顺序\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(section, "closing.md 应包含「收尾检查顺序」小节");
+
+  assert.match(section, /^0\. tasks 完整性核对/m);
+  assert.match(section, /openspec list/);
+  assert.match(section, /✓ Complete/);
+  assert.match(section, /逐项核对 tasks\.md 勾选与已交付事实一致/);
+  assert.match(section, /不得为凑数而标记/);
+  assert.match(section, /0\. tasks 完整性核对[\s\S]*?1\. 项目测试/);
 });

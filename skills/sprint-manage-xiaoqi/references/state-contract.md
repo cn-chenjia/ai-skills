@@ -123,6 +123,31 @@ node scripts/ledger-lock.mjs commit \
 
 校验失败时不得覆盖账本。状态推进统一使用 `advance-progress.mjs`，证据记录统一使用 `record-evidence.mjs`；不得手工推进交付状态。
 
+## 证据字段速查表
+
+生成 apply/check/review 等证据前，先查询当前 kind 的必需字段与合法值约束（只读，不触碰账本）：
+
+```bash
+node "<小七技能安装目录>/scripts/advance-progress.mjs" --schema <kind>
+```
+
+各 kind 的必需字段与成功值约束（以 `--schema` 输出为准）：
+
+| kind | 必需字段 | 成功值约束 |
+| --- | --- | --- |
+| apply | kind, command, exit_code, checked_at, summary | exit_code=0（commit 可选，未填时脚本自动回填当前 HEAD） |
+| check | kind, command, exit_code, commit, checked_at, summary | exit_code=0 |
+| review | 同 check + result | result=approved |
+| openspec-verify | 同 check + result | result=passed |
+| finish | 同 check + result + outcome | result∈{pr-open,merged,kept} 且必须等于目标交付状态；outcome∈{passed,completed,archived} |
+| archive | kind, command, exit_code, checked_at, summary, path, outcome | outcome∈{passed,completed,archived}，path 非空 |
+
+apply 证据附带 TDD 声明时的复合校验：
+
+- `tdd.enabled: true` → 必须包含有效 red（exit_code=1、result=failed）与 green（exit_code=0、result=passed）阶段，refactor 可选但必须 passed；
+- `tdd.enabled: false` → 必须提供 `tdd.reason` 豁免原因；
+- `tdd_tasks` 数组逐项同样受上述豁免留痕约束（task_id 非空，关闭 TDD 须留 reason）。
+
 状态迁移：
 
 ```text

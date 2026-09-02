@@ -543,7 +543,7 @@ test("keeps the current worktree untouched when it has uncommitted changes", asy
   assert.equal(ledger.仓库[0].baseBranch, "main");
 });
 
-test("asks the user to choose a base branch when neither the ledger nor project config sets one", async () => {
+test("asks the user to choose a base branch when no automatic derivation is possible", async () => {
   const projectRoot = await createProject();
   const ledgerPath = await writeLedger(projectRoot, "story-base-required");
   const source = await readFile(ledgerPath, "utf8");
@@ -552,6 +552,7 @@ test("asks the user to choose a base branch when neither the ledger nor project 
     source.replace('    baseBranch: "main"', "    baseBranch: null"),
   );
   git(projectRoot, "commit", "--allow-empty", "-m", "add requirement without base branch");
+  git(projectRoot, "checkout", "--detach");
   assert.equal(existsSync(path.join(projectRoot, ".xiaoqi", "config.yaml")), false);
 
   const result = prepare(ledgerPath, projectRoot);
@@ -560,6 +561,96 @@ test("asks the user to choose a base branch when neither the ledger nor project 
   assert.match(result.stderr, /BASE_BRANCH_REQUIRED/);
   assert.match(result.stderr, /main/);
   assert.equal(existsSync(path.join(projectRoot, ".worktrees", "story-base-required")), false);
+});
+
+async function writeHistoryLedger(projectRoot, id, baseBranch) {
+  const ledgerPath = getRequirementPath(projectRoot, id);
+  await mkdir(path.dirname(ledgerPath), { recursive: true });
+  const template = `schema_version: 4
+document_type: requirement
+编号: "${id}"
+名称: "历史需求"
+change_id: "${id}-change"
+revision: 1
+updated_at: "2026-08-19T10:00:00+08:00"
+updated_by: "alice"
+流程状态: closed
+交付状态: merged
+当前意图: "需求已关闭"
+推荐动作: null
+协作:
+  模式: single
+  负责人: "alice"
+仓库:
+  - id: "main"
+    root: ${JSON.stringify(projectRoot)}
+    branch: "feature/${id}"
+    worktree: ".worktrees/${id}"
+    baseBranch: "${baseBranch}"
+依赖需求: []
+冲突键: []
+影响范围: []
+计划: null
+证据索引:
+  checks: []
+  review: null
+  archive:
+    outcome: pending
+    path: null
+  finish:
+    outcome: pending
+    result: null
+    summary: null
+用户决策:
+  - kind: proposal-confirmation
+    outcome: approved
+    actor: "requester"
+    at: "2026-08-19T10:00:00+08:00"
+阻塞项: []
+事件日志: []
+`;
+  await writeFile(ledgerPath, template);
+  return ledgerPath;
+}
+
+test("inherits the base branch from the mode of history ledgers of the same repository", async () => {
+  const projectRoot = await createProject();
+  git(projectRoot, "branch", "develop");
+  await writeHistoryLedger(projectRoot, "story-hist-a", "develop");
+  await writeHistoryLedger(projectRoot, "story-hist-b", "develop");
+  await writeHistoryLedger(projectRoot, "story-hist-c", "main");
+  const ledgerPath = await writeLedger(projectRoot, "story-inherit");
+  const source = await readFile(ledgerPath, "utf8");
+  await writeFile(ledgerPath, source.replace('    baseBranch: "main"', "    baseBranch: null"));
+  git(projectRoot, "commit", "--allow-empty", "-m", "add requirement without base branch");
+  assert.equal(existsSync(path.join(projectRoot, ".xiaoqi", "config.yaml")), false);
+
+  const result = prepare(ledgerPath, projectRoot);
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.baseBranch, "develop");
+  const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
+  assert.equal(ledger.仓库[0].baseBranch, "develop");
+});
+
+test("falls back to the current HEAD branch when no history ledger matches", async () => {
+  const projectRoot = await createProject();
+  git(projectRoot, "branch", "develop");
+  git(projectRoot, "checkout", "develop");
+  const ledgerPath = await writeLedger(projectRoot, "story-head-inherit");
+  const source = await readFile(ledgerPath, "utf8");
+  await writeFile(ledgerPath, source.replace('    baseBranch: "main"', "    baseBranch: null"));
+  git(projectRoot, "commit", "--allow-empty", "-m", "add requirement without base branch");
+  assert.equal(existsSync(path.join(projectRoot, ".xiaoqi", "config.yaml")), false);
+
+  const result = prepare(ledgerPath, projectRoot);
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.baseBranch, "develop");
+  const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
+  assert.equal(ledger.仓库[0].baseBranch, "develop");
 });
 
 test("prefers the project config base branch over the ledger repository entry", async () => {

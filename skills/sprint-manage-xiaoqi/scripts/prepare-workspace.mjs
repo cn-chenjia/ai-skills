@@ -139,8 +139,46 @@ export function detectDefaultBaseBranch(projectRoot) {
   return { baseBranch, candidates: [...candidates] };
 }
 
+function readHistoryBaseBranchCounts(projectRoot, repositoryRoot) {
+  // 收集全局账本中指向同一仓库 root 的历史条目 baseBranch 计数（用于众数继承）
+  const counts = new Map();
+  const requirementsDir = getRequirementsDir(projectRoot);
+  if (!existsSync(requirementsDir)) return counts;
+  for (const name of readdirSync(requirementsDir)) {
+    if (!/\.ya?ml$/i.test(name)) continue;
+    try {
+      const candidate = parseProgressYaml(
+        readFileSync(path.join(requirementsDir, name), "utf8"),
+      );
+      for (const repository of candidate.仓库 ?? []) {
+        // 相对 root 无法定位所属项目，只匹配绝对路径条目（initialize-requirement 写入的形态）
+        if (!repository?.baseBranch || !path.isAbsolute(repository.root ?? "")) continue;
+        if (comparablePath(repository.root) !== comparablePath(repositoryRoot)) continue;
+        counts.set(repository.baseBranch, (counts.get(repository.baseBranch) ?? 0) + 1);
+      }
+    } catch {
+      // 无法解析的历史账本跳过，不阻塞工作区准备
+    }
+  }
+  return counts;
+}
+
+function detectHeadBaseBranch(projectRoot) {
+  const result = runGit(
+    projectRoot,
+    ["rev-parse", "--abbrev-ref", "HEAD"],
+    { allowFailure: true },
+  );
+  if (result.status !== 0) return null;
+  const branch = result.stdout.trim();
+  // detached HEAD 时返回字面量 "HEAD"，不能作为基线分支
+  if (!branch || branch === "HEAD") return null;
+  if (!branchExists(projectRoot, branch)) return null;
+  return branch;
+}
+
 function detectBaseBranch(projectRoot, configured) {
-  // 优先级：项目 .xiaoqi/config.yaml > 账本仓库条目 > 请求用户选择
+  // 优先级：项目 .xiaoqi/config.yaml > 账本仓库条目 > 同仓库历史账本众数 > 仓库当前 HEAD 分支 > 请求用户选择
   const projectConfig = readProjectConfig(projectRoot);
   if (projectConfig.baseBranch) {
     if (!branchExists(projectRoot, projectConfig.baseBranch)) {
@@ -157,6 +195,19 @@ function detectBaseBranch(projectRoot, configured) {
     }
     return configured;
   }
+
+  const historyCounts = readHistoryBaseBranchCounts(projectRoot, projectRoot);
+  if (historyCounts.size > 0) {
+    const [bestBranch] = [...historyCounts.entries()].sort(
+      (a, b) => b[1] - a[1],
+    )[0];
+    if (branchExists(projectRoot, bestBranch)) {
+      return bestBranch;
+    }
+  }
+
+  const headBranch = detectHeadBaseBranch(projectRoot);
+  if (headBranch) return headBranch;
 
   const { baseBranch: defaultBranch, candidates } = detectDefaultBaseBranch(
     projectRoot,
