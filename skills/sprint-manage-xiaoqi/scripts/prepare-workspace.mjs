@@ -81,24 +81,47 @@ function validateBranchName(projectRoot, branch) {
   if (result.status !== 0) throw new Error(`需求分支名称无效: ${branch}`);
 }
 
-function readProjectConfig(projectRoot) {
+export function readProjectConfig(projectRoot) {
   const configPath = path.join(projectRoot, ".xiaoqi", "config.yaml");
   if (!existsSync(configPath)) return {};
   const raw = readFileSync(configPath, "utf8");
   const config = {};
+  // 当前嵌套段名（如 environmentNotes:）；二级子键归入该段，避免平面污染
+  let section = null;
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
+    const indent = line.length - line.replace(/^ +/, "").length;
     const sep = trimmed.indexOf(":");
     if (sep < 0) continue;
     const key = trimmed.slice(0, sep).trim();
-    const value = trimmed
-      .slice(sep + 1)
-      .trim()
-      .replace(/^["']|["']$/g, "");
+    const rawValue = trimmed.slice(sep + 1).trim();
+    // 带引号值：取闭合引号内内容（其后允许行内注释）；裸值：截掉 " #" 起的注释
+    const quoted = rawValue.match(/^(['"])([\s\S]*?)\1/);
+    const value = quoted ? quoted[2] : rawValue.split(/\s+#/)[0].trim();
+    if (indent > 0) {
+      // 缩进行只在其上层是已打开的嵌套段时归入；否则忽略（防孤立缩进污染顶层）
+      if (section && key) config[section][key] = value;
+      continue;
+    }
+    if (value === "") {
+      // 顶层无值键：开一个新的嵌套段（下一个子键集将归属它）
+      section = key;
+      config[key] = {};
+      continue;
+    }
+    section = null;
     if (key) config[key] = value;
   }
+  // 空的占位段（声明了但没有任何子键）保持为空对象，由消费方视为"未配置"
   return config;
+}
+
+export function readEnvironmentNotes(projectRoot) {
+  const notes = readProjectConfig(projectRoot).environmentNotes;
+  if (!notes || typeof notes !== "object" || Array.isArray(notes)) return null;
+  const entries = Object.entries(notes).filter(([, value]) => value !== "");
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
 export function detectDefaultBaseBranch(projectRoot) {

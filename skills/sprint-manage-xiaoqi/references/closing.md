@@ -14,6 +14,15 @@
 0. tasks 完整性核对：运行 `openspec list` 确认目标 change 显示 ✓ Complete；
    非 Complete 时先逐项核对 tasks.md 勾选与已交付事实一致，修复后再进入归档；
    勾选状态不得为凑数而标记，须有对应交付证据。
+0.5 archive 预检：先跑一次 `openspec archive <change> --json`（不带 --yes）。
+   该命令非交互、不归档（任何失败或通过都保持 `archive: null`），按返回分两支：
+   - `archive_validation_failed`（delta 格式错误）：按 fix 提示运行
+     `openspec validate <change> --type change --strict --json` 拿到明细，修复 delta 后重跑预检；
+   - `archive_confirmation_required`（预检通过）：进入带 `--yes` 的正式归档。
+   主规格侧错误（中文标题 outside section、MODIFIED not found、场景超集）预检不覆盖，
+   在 `--yes` 执行阶段暴露；执行失败时原子保护生效（"No files were changed"），
+   按 message 精确定位修复后重跑即可，不产生半归档状态。
+   正式归档成功后，从 JSON 输出取 `archive.path`（归档路径）记入账本 archive 证据。
 1. 项目测试、构建和静态检查通过；
 2. code review 已批准；
 3. OpenSpec verify 已通过；
@@ -56,7 +65,7 @@ OpenSpec archive 成功后，调用 Superpowers 的
 
 ## 正式关闭
 
-仅当 archive 和 finish 证据都存在，且最终交付状态为 `pr-open | merged | kept` 时，才由主技能调用 `scripts/close-requirement.mjs` 校验证据并写入 `closed` 事件。账本位于 `~/.xiaoqi/sprint-manage/<requirement-id>-v<版本号>.yaml`，不维护 session 文件。真实流程和交付状态仍以账本为准，不能只在对话或总结中宣称需求已关闭。已关闭版本发现后续问题时，创建新版本，不重新打开原账本。
+仅当 archive 和 finish 证据都存在，且最终交付状态为 `pr-open | merged | kept` 时，才由主技能调用 `"<小七技能安装目录>/scripts/close-requirement.mjs"` 校验证据并写入 `closed` 事件。账本位于 `~/.xiaoqi/sprint-manage/<requirement-id>-v<版本号>.yaml`，不维护 session 文件。真实流程和交付状态仍以账本为准，不能只在对话或总结中宣称需求已关闭。已关闭版本发现后续问题时，创建新版本，不重新打开原账本。
 
 ## 关闭整个迭代
 

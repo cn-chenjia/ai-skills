@@ -176,6 +176,24 @@ Windows/PowerShell 宿主执行 git 等命令时：commit 消息一律单行 -m�
 
 **v4 前置确认（实施第一步，未验证不写规则）**：方案假设 `openspec archive <change> --json`（不带 --yes）是非交互式、返回可靠 JSON 的预检入口——该 CLI 行为未经验证。实施前先在真实项目空跑确认：①不带 --yes 时是否仍交互式询问确认（预检不能卡住）；②JSON 输出是否含可判读的 status/错误明细。若任一不满足，预检降级为 `openspec validate <change> --type change --strict --json` + 人工核对主规格标题，规则文本按实际 CLI 行为书写。
 
+**v4.5 前置验证结果（2026-09-02，openspec 1.10.0 临时项目实测，已通过）**：
+
+| 实验 | 命令 | 实测结果 |
+| --- | --- | --- |
+| 非交互性 | `archive <id> --json`（无 --yes） | ✓ 立即返回，不卡住；`--json` 帮助原文即 "Output as JSON (non-interactive)" |
+| 预检安全性 | 同上 | ✓ 任何情况下 `archive: null`，**不带 --yes 绝不归档** |
+| delta 格式错误 | 同上（delta 用旧式 `### REQ-X` 条目） | `archive_validation_failed`；fix 提示跑 validate 拿明细（失败输出只有汇总） |
+| 预检通过 | 同上 | `archive_confirmation_required`，message 预告 "Updating N spec(s)"，fix 给出确切执行命令 |
+| MODIFIED 匹配失败 | `--json --yes`（主规格旧格式条目） | `archive_spec_update_failed` "not found"；**"No files were changed"（原子保护）** |
+| 中文标题根因 | `--json --yes`（中文标题+正确条目） | `archive_spec_update_failed`，message 原文 **"appears outside the main ## Requirements section ... invisible to validate, list, and archive"**——精确复现 story-69176/69424 失败原文，确证中文 section 标题是根因（条目格式正确也无救） |
+| 成功归档 | `--json --yes`（英文标题+正确条目） | exit 0；`archive.path` 非空（账本 archive 证据 path 字段来源）、`archivedAs`、`totals` 统计 |
+
+**设计定论**（规则文本按此实施）：
+1. 预检入口成立，无需降级：`openspec archive <change> --json` 不带 --yes 是非交互、不归档、结构化输出的安全预检。
+2. 预检捕获范围有限：delta 自身格式错误在预检阶段暴露；**主规格侧错误（中文标题 outside section、MODIFIED not found、场景超集）只在 --yes 执行阶段暴露**。
+3. 原子性兜底：执行阶段失败时 "No files were changed"——"带 --yes 失败 → 按 message 精确定位修复 → 重跑"本身就是安全闭环，与预检互补而非替代。
+4. 0.5 条规则修正：预检只分两支（validation_failed → validate 拿明细修 delta；confirmation_required → 通过）；主规格侧三类修复（c/d/e）移入 --yes 执行阶段的失败处理，不再是预检预判项。成功后从输出 `archive.path` 取归档路径记入账本证据。
+
 **验证计划**：构造中文标题主规格 + 陈旧 delta 的 change，观察主技能是否在正式归档前经预检发现并修复，一次 `--yes` 成功（对照本次 2 次失败）。
 
 ### P8：close 后账本意图字段刷新（低，story-69176）
@@ -327,7 +345,7 @@ node "<小七技能安装目录>/scripts/validate-progress.mjs" ...
 | --- | --- | --- |
 | 批次1 | P1 + P2（文档速查表 + 脚本 --schema + baseBranch 继承） | 消除启动与证据两大高频摩擦（P1 已跨两会话复现），纯增益无行为风险；v4 后 P2 只需新增优先级推导，候选枚举逻辑不动，改动面更小 |
 | 批次2 | P3 + P6（early-merge 规则 + 归档前勾选核对） | P3 已有 GREEN 基线（69424），实施成本最低；P6 纯流程文本；两项均低风险收尾规则，先落地见效 |
-| 批次2b | P7 + P9（archive 预检 + environmentNotes 沉淀） | v4 上调实施门槛：P7 须先完成 openspec CLI 非交互 JSON 行为确认、P9 须完成 readProjectConfig 嵌套解析改造（见各项 v4 补充），确认通过后才实施；与批次2 解耦，避免前置确认阻塞已成熟的 P3/P6；P9 保留提前理由——同环境隔会话复现 2 次，代价最直观 |
+| 批次2b | P7 + P9（archive 预检 + environmentNotes 沉淀） | v4 上调实施门槛：~~P7 须先完成 openspec CLI 非交互 JSON 行为确认~~（**v4.5 已通过实测**，且发现原子性兜底使预检与执行失败互补，规则按验证矩阵修正）；P9 须完成 readProjectConfig 嵌套解析改造（见各项 v4 补充）——该改造即 P9 实施第一步（TDD），无额外外部验证；与批次2 解耦，避免前置确认阻塞已成熟的 P3/P6；P9 保留提前理由——同环境隔会话复现 2 次，代价最直观 |
 | 批次3 | P4 + P5 + P8 + P11 + P14（manual 证据 + 自行复验优先规则 + PowerShell 纪律条款 + close 意图字段刷新 + 验证环境澄清 + 示例路径基准统一） | 语义增强、兼容性修补、澄清维度补齐与文档小修，回归验证即可；P5 已按 v4 改写为正向纪律条款（原文档无 heredoc 示例可改）；P14 复查已完成仅剩 5 处修正；P8 取值已定 null |
 | 批次4 | P10 + P12 + P13（explore 逐行核对 + 查询侧特判检索 + 远端对账/DB 枚举核对纪律） | explore/收尾纪律沉淀；P12 为本次会话最大返工成本项，与 P10 同属探索质量但检索方向互补（P10 核对参考实现的取值表达式，P12 检索目标类型自身的特判），建议同批实施互相强化 |
 
