@@ -365,3 +365,41 @@ test("uses skill-path placeholders for script command examples", async () => {
   assert.match(state, /<小七技能安装目录>\/scripts\/validate-progress\.mjs/);
   assert.match(closing, /<小七技能安装目录>\/scripts\/close-requirement\.mjs/);
 });
+
+test("requires line-by-line and query-side special-case checks in explore", async () => {
+  const steps = await readSkillFile("references/step-details.md");
+  const simplePath = steps.match(
+    /## 简单路径([\s\S]*?)(?=\n## 多需求与多仓库路径)/,
+  )?.[1];
+  assert.ok(simplePath);
+
+  assert.match(simplePath, /逐行核对参考实现的取值表达式/);
+  assert.match(simplePath, /下标、层级截取、空保护/);
+  assert.match(simplePath, /design\.md 中原样记录关键行/);
+  assert.match(simplePath, /禁止只按方法语义推断输出形状/);
+
+  assert.match(simplePath, /检索目标类型编码在查询\/组装\/过滤/);
+  assert.match(simplePath, /含"不要\/跳过\/不返回"注释的代码行|含「不要\/跳过\/不返回」注释的代码行/);
+  assert.match(simplePath, /diff 目标类型与参考类型的分支差异/);
+  assert.match(simplePath, /确认差异点即实现点/);
+});
+
+test("requires remote reconciliation before push and DB enum shape checks", async () => {
+  const closing = await readSkillFile("references/closing.md");
+  const branchSection = closing.match(
+    /## 分支收尾\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(branchSection, "closing.md 应包含「分支收尾」小节");
+  assert.match(branchSection, /push 前先 fetch 并对账/);
+  assert.match(branchSection, /git branch -r --contains/);
+  assert.match(branchSection, /远端已包含时改走 pull 同步/);
+
+  const steps = await readSkillFile("references/step-details.md");
+  const simplePath = steps.match(
+    /## 简单路径([\s\S]*?)(?=\n## 多需求与多仓库路径)/,
+  )?.[1];
+  assert.ok(simplePath);
+  assert.match(simplePath, /SELECT DISTINCT/);
+  assert.match(simplePath, /先怀疑查询值形态/);
+  assert.match(simplePath, /断言"无数据需造数"|断言「无数据需造数」/);
+});

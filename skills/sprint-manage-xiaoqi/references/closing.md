@@ -63,6 +63,10 @@ OpenSpec archive 成功后，调用 Superpowers 的
 `finishing-a-development-branch` 完成 finish。根据用户选择，把真实 finish 结果记录为
 `pr-open | merged | kept`，并保存成功的 finish 证据。`finish.summary` 至少记录实际 branch、worktree、PR 或 merge 信息，以及是否删除 branch/worktree；选择 `kept` 时还要记录保留对象和后续动作。
 
+push 前先 fetch 并对账：`git branch -r --contains <需求 HEAD 提交>` 确认远端
+是否已包含本次改动（用户可能已在会话外自行推送）；远端已包含时改走 pull 同步，
+本地领先才推送；禁止不做对账直接 push 导致 rejected 摩擦。
+
 ## 正式关闭
 
 仅当 archive 和 finish 证据都存在，且最终交付状态为 `pr-open | merged | kept` 时，才由主技能调用 `"<小七技能安装目录>/scripts/close-requirement.mjs"` 校验证据并写入 `closed` 事件。账本位于 `~/.xiaoqi/sprint-manage/<requirement-id>-v<版本号>.yaml`，不维护 session 文件。真实流程和交付状态仍以账本为准，不能只在对话或总结中宣称需求已关闭。已关闭版本发现后续问题时，创建新版本，不重新打开原账本。
