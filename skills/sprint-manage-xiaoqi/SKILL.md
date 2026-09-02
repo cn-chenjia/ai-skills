@@ -67,6 +67,10 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 4. 检查当前意图、最近动作、项目事实和是否存在人工门禁。
 5. 若有多个候选需求，先请求用户明确选择；不得模糊匹配。
 6. **全局账本检查**：从 `~/.xiaoqi/sprint-manage/` 读取需求账本，文件使用 `<requirement-id>-v<版本号>.yaml`。多个需求可以并行推进；若用户未明确需求编号且存在多个候选，必须请求用户选择，不得依赖 session 或静默切换。
+7. **环境诊断按需触发**：以上检查中 OpenSpec 命令失败或账本读取异常时，运行
+   `node "<小七技能安装目录>/scripts/doctor.mjs" <项目根目录>` 做环境诊断
+   （Node、OpenSpec CLI、账本目录、技能安装、基准分支）；
+   普通续接消息不运行环境检查。
 
 没有账本时，只能先完成需求澄清和方案确认。proposal 未获用户确认前，不得初始化账本。
 

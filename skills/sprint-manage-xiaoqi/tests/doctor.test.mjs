@@ -9,7 +9,6 @@ import { runDoctor } from "../scripts/doctor.mjs";
 test("环境检查只检查六项基础依赖并使用新的全局目录", async () => {
   const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-doctor-"));
   const homeDir = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-home-"));
-  await mkdir(path.join(homeDir, ".xiaoqi", "runtime"), { recursive: true });
   await mkdir(path.join(homeDir, ".xiaoqi", "sprint-manage"), { recursive: true });
 
   const commands = [];
@@ -28,7 +27,6 @@ test("环境检查只检查六项基础依赖并使用新的全局目录", async
   assert.deepEqual(Object.keys(result.checks), [
     "nodejs",
     "openSpec",
-    "runtime",
     "ledger",
     "skills",
     "openSpecContext",

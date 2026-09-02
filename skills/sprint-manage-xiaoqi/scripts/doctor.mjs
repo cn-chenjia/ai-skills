@@ -201,11 +201,6 @@ export async function runDoctor(
     openSpec: openSpecVersion.ok
       ? check("pass", "OpenSpec 命令可执行", openSpecVersion.output)
       : check("warn", "OpenSpec 命令不可执行", openSpecVersion.message),
-    runtime: checkDirectory(
-      path.join(homeDir, ".xiaoqi", "runtime"),
-      "小七运行时目录",
-      "请确认 ~/.xiaoqi/runtime 已由用户手动准备",
-    ),
     ledger: checkDirectory(
       getRequirementsDir(projectRoot, homeDir),
       "小七运行时账本目录",

@@ -6,7 +6,6 @@
 
 ```text
 ~/.xiaoqi/
-  runtime/
   sprint-manage/
     <requirement-id>-v<版本号>.yaml
 ```

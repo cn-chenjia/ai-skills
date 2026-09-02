@@ -403,3 +403,23 @@ test("requires remote reconciliation before push and DB enum shape checks", asyn
   assert.match(simplePath, /先怀疑查询值形态/);
   assert.match(simplePath, /断言"无数据需造数"|断言「无数据需造数」/);
 });
+
+test("routes on-demand environment diagnosis through doctor", async () => {
+  const skill = await readSkillFile("SKILL.md");
+  const runtime = await readSkillFile("references/runtime-contract.md");
+  const state = await readSkillFile("references/state-contract.md");
+
+  const startup = skill.match(
+    /## 最小启动检查\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(startup, "SKILL.md 应包含「最小启动检查」小节");
+  assert.match(startup, /环境诊断按需触发/);
+  assert.match(startup, /doctor\.mjs/);
+  assert.match(startup, /普通续接消息不运行环境检查/);
+
+  assert.match(runtime, /doctor\.mjs/);
+  assert.match(runtime, /环境诊断/);
+
+  // 全局运行时目录（~/.xiaoqi/runtime）不再被流程依赖，布局文档不再记载
+  assert.doesNotMatch(state, /  runtime\//);
+});
