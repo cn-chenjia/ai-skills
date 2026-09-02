@@ -34,7 +34,8 @@ const EVIDENCE_SCHEMA = {
   },
   check: {
     required: ["kind", "command", "exit_code", "commit", "checked_at", "summary"],
-    optional: ["result"],
+    // manual: true 时为人工验证证据：command 允许描述文字，confirmed_by 变为必填
+    optional: ["result", "manual", "confirmed_by"],
   },
   review: {
     required: ["kind", "command", "exit_code", "commit", "checked_at", "summary", "result"],
@@ -172,6 +173,16 @@ export function validateEvidence(evidence, targetStatus) {
       if (tdd && tdd.enabled !== true && !hasText(tdd.reason)) {
         throw new Error(`任务 ${item.task_id} 关闭 TDD 必须记录豁免原因（tdd.reason）`);
       }
+    }
+  }
+
+  // 人工验证证据（check 且 manual: true）：command 允许描述文字，必须留人工确认人
+  if (kind === "check" && evidence.manual === true) {
+    if (!hasText(evidence.confirmed_by)) {
+      throw new Error(
+        "人工验证的 check 证据（manual: true）必须包含 confirmed_by（人工确认人）；" +
+          "command 填验证方式描述，不可空缺确认人",
+      );
     }
   }
 

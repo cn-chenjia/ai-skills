@@ -638,6 +638,58 @@ test("advance command records successful apply evidence when coding starts", asy
   assert.equal(advanced.事件日志.at(-1).evidence_kind, "apply");
 });
 
+test("rejects a manual check evidence without a confirmer", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-manual-miss-"));
+  const file = path.join(directory, "story-1001.yaml");
+  await writeFile(file, await fixtureSource("valid-single.yaml"));
+
+  assert.throws(
+    () => advanceProgress(
+      file,
+      "verified",
+      {
+        kind: "check",
+        command: "SIT 联调验证（用户确认通过）",
+        exit_code: 0,
+        commit: "abc123",
+        checked_at: "2026-08-13T11:00:00+08:00",
+        summary: "SIT 接口人工验证",
+        manual: true,
+      },
+      "alice",
+    ),
+    /manual.*check.*confirmed_by|confirmed_by.*人工确认人/,
+  );
+});
+
+test("accepts a manual check evidence with a confirmer and keeps the marker", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-manual-ok-"));
+  const file = path.join(directory, "story-1001.yaml");
+  await writeFile(file, await fixtureSource("valid-single.yaml"));
+
+  advanceProgress(
+    file,
+    "verified",
+    {
+      kind: "check",
+      command: "SIT 联调验证（用户确认通过）",
+      exit_code: 0,
+      commit: "abc123",
+      checked_at: "2026-08-13T11:00:00+08:00",
+      summary: "SIT 接口人工验证",
+      manual: true,
+      confirmed_by: "requester",
+    },
+    "alice",
+  );
+
+  const advanced = parseProgressYaml(await readFile(file, "utf8"));
+  assert.equal(advanced.交付状态, "verified");
+  const check = advanced.证据索引.checks.at(-1);
+  assert.equal(check.manual, true);
+  assert.equal(check.confirmed_by, "requester");
+});
+
 test("advance to coding is rejected when reconciliation reports inconsistency", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-reconcile-reject-"));
   const file = path.join(directory, "story-1001.yaml");

@@ -59,6 +59,10 @@ export function closeRequirement(filePath, owner) {
     const document = parseProgressYaml(original);
     assertRequirementClosable(document);
     document.流程状态 = "closed";
+    // 关闭后刷新意图字段为终态语义，避免续接会话读到过期的实施意图
+    // 推荐动作取 null：ACTION_VALUES 枚举无 "none"，null 是校验逻辑显式放行的唯一合法终值
+    document.当前意图 = "需求已关闭";
+    document.推荐动作 = null;
     document.事件日志 = Array.isArray(document.事件日志)
       ? document.事件日志
       : [];

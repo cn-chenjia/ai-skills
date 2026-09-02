@@ -104,20 +104,20 @@ not-started | coding | verified | reviewed | ready
 pr-open | merged | kept
 ```
 
-`closed` 必须同时具备 OpenSpec archive 成功证据和 finish 成功证据；`finish.result` 必须等于最终交付状态。
+`closed` 必须同时具备 OpenSpec archive 成功证据和 finish 成功证据；`finish.result` 必须等于最终交付状态。关闭后「当前意图」刷新为"需求已关闭"、推荐动作置为 null（终态语义，续接会话不得再按实施意图解读账本）。
 
 ## 校验与原子更新
 
 ```bash
-node scripts/validate-progress.mjs \
+node "<小七技能安装目录>/scripts/validate-progress.mjs" \
   "$HOME/.xiaoqi/sprint-manage/story-2000-v1.yaml"
 
-node scripts/validate-progress.mjs \
+node "<小七技能安装目录>/scripts/validate-progress.mjs" \
   "$HOME/.xiaoqi/sprint-manage"
 
-node scripts/ledger-lock.mjs acquire \
+node "<小七技能安装目录>/scripts/ledger-lock.mjs" acquire \
   "$HOME/.xiaoqi/sprint-manage/story-2000-v1.yaml" requester
-node scripts/ledger-lock.mjs commit \
+node "<小七技能安装目录>/scripts/ledger-lock.mjs" commit \
   "$HOME/.xiaoqi/sprint-manage/story-2000-v1.yaml" <token>
 ```
 
@@ -147,6 +147,12 @@ apply 证据附带 TDD 声明时的复合校验：
 - `tdd.enabled: true` → 必须包含有效 red（exit_code=1、result=failed）与 green（exit_code=0、result=passed）阶段，refactor 可选但必须 passed；
 - `tdd.enabled: false` → 必须提供 `tdd.reason` 豁免原因；
 - `tdd_tasks` 数组逐项同样受上述豁免留痕约束（task_id 非空，关闭 TDD 须留 reason）。
+
+人工验证证据（check 且 `manual: true`）：
+
+- `command` 允许填验证方式描述文字（如"SIT 联调验证（用户确认通过）"），不必是可执行命令；
+- 必须额外提供 `confirmed_by`（人工确认人）；
+- 证据落库时保留 `manual: true` 与 `confirmed_by`，与命令行执行证据区分；非人工路径行为不变。
 
 状态迁移：
 

@@ -18,7 +18,7 @@
 
 | 用户意图 | 推荐动作 | 责任方 | 首选宿主技能 | 需调用的能力面 |
 | --- | --- | --- | --- | --- |
-| 调查问题、比较方向 | `explore` | OpenSpec；由小七保持流程所有权 | `openspec-explore` | 需求澄清、事实收集与方向比较 |
+| 调查问题、比较方向 | `explore` | OpenSpec；由小七保持流程所有权 | `openspec-explore` | 需求澄清、事实收集与方向比较、验证环境澄清 |
 | 创建或完善 change | `propose` | OpenSpec | `openspec-propose` | 提案与设计撰写 |
 | 按 tasks 实现 | `apply` | OpenSpec 提供任务，Superpowers 提供执行纪律 | `test-driven-development` 逐任务执行；关闭 TDD 的任务用 `executing-plans` | TDD（先失败后通过）、调试、最小实现、项目测试运行 |
 | 开发中需求或设计变化 | `update` | OpenSpec | `openspec-update-change` | 变更拆解与任务重排 |
@@ -66,6 +66,9 @@ CLI 命令；后者用于更新 OpenSpec instruction 文件，不能拿来修改
 5. 必须为每个仓库创建或复用需求专属分支和 `.worktrees/<需求编号>` worktree；不得将当前工作区登记为 `.`，也不因当前工作区存在未提交修改而切换或阻塞。
 6. 项目验证通过后，再运行 OpenSpec verify 检查实现与规格一致性。
 7. 验证结果返回主技能，由主技能决定下一动作。
+8. 需求涉及环境联调验证时，澄清问答 MUST 包含「验证环境」（SIT/MIT/UAT/PRO
+   等实际可用环境），tasks 验收条件按用户选择的环境书写；
+   禁止沿用模板或历史需求的默认环境值。
 
 简单不等于跳过 TDD、验证或真实证据。
 
@@ -132,6 +135,9 @@ OpenSpec explore
   静态检查等替代验证方式，但证据必须如实记录实际执行的命令或检查来源，
   不得伪造 `exit_code: 0`；替代验证的覆盖缺口要在 summary 中说明，并交给
   用户决定是否随提测人工验证。
+- 环境联调结论的条件允许时优先自行复验接口取证（登录态 fetch、DB 查询、
+  网络请求抓取），以复验结果作为证据主体；用户口头确认仅兜底，
+  且兜底时必须以 `manual: true` + `confirmed_by` 落人工验证证据。
 
 Superpowers 验证：
 
@@ -227,6 +233,8 @@ OpenSpec verify：
 ```
 
 `auto-runner` 等自动化脚本只在账本已初始化、仓库与工作区已登记且当前动作明确时，推进已有账本的证据门禁。它不负责创建需求账本、准备工作区、代替 OpenSpec explore/propose/update、编写代码、执行人工评审或完成 archive/finish。
+
+Windows/PowerShell 宿主执行 git 等命令时：commit 消息一律单行 -m（禁用 heredoc）；多命令用分号分隔（禁用 && / ||）；路径含空格时用双引号包裹。
 
 当需求明确或用户已经确认 `explore` 结果时，当前模型应继续推进允许自动执行的动作；遇到建账、工作区准备、编码、评审、归档、分支收尾、人工门禁、`blocked` 或证据无法取得时，必须由主技能协调对应宿主工具或暂停等待用户处理。
 ## 自动修复边界

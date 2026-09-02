@@ -256,3 +256,112 @@ test("requires tasks completeness check before archive", async () => {
   assert.match(section, /不得为凑数而标记/);
   assert.match(section, /0\. tasks 完整性核对[\s\S]*?1\. 项目测试/);
 });
+
+test("requires archive preflight before the real archive run", async () => {
+  const closing = await readSkillFile("references/closing.md");
+  const section = closing.match(
+    /## 收尾检查顺序\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(section, "closing.md 应包含「收尾检查顺序」小节");
+
+  assert.match(section, /^0\.5 archive 预检/m);
+  assert.match(section, /openspec archive <change> --json`（不带 --yes）/);
+  assert.match(section, /archive_validation_failed/);
+  assert.match(section, /archive_confirmation_required/);
+  assert.match(section, /archive\.path/);
+  assert.match(
+    section,
+    /0\. tasks 完整性核对[\s\S]*?0\.5 archive 预检[\s\S]*?1\. 项目测试/,
+  );
+});
+
+test("documents environmentNotes persistence for probe conclusions", async () => {
+  const runtime = await readSkillFile("references/runtime-contract.md");
+  const section = runtime.match(
+    /## 环境知识沉淀\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(section, "runtime-contract.md 应包含「环境知识沉淀」小节");
+
+  assert.match(section, /environmentNotes/);
+  assert.match(section, /\.xiaoqi\/config\.yaml/);
+  assert.match(section, /先读 `environmentNotes`/);
+  assert.match(section, /未命中才发起探测/);
+  assert.match(section, /用户确认后/);
+  assert.match(section, /幂等合并/);
+  assert.match(section, /网关前缀|环境域名|表结构/);
+});
+
+test("documents manual check evidence semantics and self-verification priority", async () => {
+  const state = await readSkillFile("references/state-contract.md");
+  const schemaSection = state.match(
+    /## 证据字段速查表\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(schemaSection, "state-contract.md 应包含「证据字段速查表」小节");
+  assert.match(schemaSection, /manual/);
+  assert.match(schemaSection, /confirmed_by/);
+  assert.match(schemaSection, /人工确认人/);
+
+  const steps = await readSkillFile("references/step-details.md");
+  const verifySection = steps.match(
+    /### 三类验证\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(verifySection, "step-details.md 应包含「三类验证」小节");
+  assert.match(verifySection, /优先自行复验/);
+  assert.match(verifySection, /登录态 fetch|DB 查询/);
+  assert.match(verifySection, /口头确认仅兜底|口头确认.*兜底/);
+});
+
+test("documents PowerShell command discipline for Windows hosts", async () => {
+  const steps = await readSkillFile("references/step-details.md");
+  const section = steps.match(
+    /## apply 与模型执行\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(section, "step-details.md 应包含「apply 与模型执行」小节");
+
+  assert.match(section, /PowerShell/);
+  assert.match(section, /单行 -m/);
+  assert.match(section, /禁用 heredoc|禁用 && \/ \|\|/);
+});
+
+test("documents the terminal intent semantics after closing", async () => {
+  const state = await readSkillFile("references/state-contract.md");
+  assert.match(state, /需求已关闭/);
+  assert.match(state, /关闭后.*推荐动作.*null|推荐动作.*置为 null|推荐动作置 null/);
+});
+
+test("requires verification environment as a clarification dimension", async () => {
+  const steps = await readSkillFile("references/step-details.md");
+  const simplePath = steps.match(
+    /## 简单路径([\s\S]*?)(?=\n## 多需求与多仓库路径)/,
+  )?.[1];
+  assert.ok(simplePath);
+
+  assert.match(simplePath, /验证环境/);
+  assert.match(simplePath, /SIT\/MIT\/UAT\/PRO|SIT、MIT、UAT、PRO/);
+  assert.match(simplePath, /禁止沿用模板或历史需求的默认环境值/);
+
+  const routeTable = steps.match(
+    /## 动作路由\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(routeTable, "step-details.md 应包含「动作路由」小节");
+  const exploreRow = routeTable
+    .split("\n")
+    .find((line) => line.includes("`explore`"));
+  assert.ok(exploreRow, "动作路由表应包含 explore 行");
+  assert.match(exploreRow, /验证环境澄清/);
+});
+
+test("uses skill-path placeholders for script command examples", async () => {
+  const state = await readSkillFile("references/state-contract.md");
+  const closing = await readSkillFile("references/closing.md");
+
+  for (const content of [state, closing]) {
+    assert.doesNotMatch(
+      content,
+      /node scripts\/|`scripts\/[a-z-]+\.mjs`/,
+      "脚本命令示例必须使用 <小七技能安装目录> 占位符而非裸相对路径",
+    );
+  }
+  assert.match(state, /<小七技能安装目录>\/scripts\/validate-progress\.mjs/);
+  assert.match(closing, /<小七技能安装目录>\/scripts\/close-requirement\.mjs/);
+});
