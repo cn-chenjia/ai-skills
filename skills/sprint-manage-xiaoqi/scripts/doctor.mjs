@@ -11,16 +11,6 @@ import { pathToFileURL } from "node:url";
 import { getRequirementsDir } from "./ledger-paths.mjs";
 import { detectDefaultBaseBranch } from "./prepare-workspace.mjs";
 
-const RUNTIME_FILES = [
-  "initialize-requirement.mjs",
-  "prepare-workspace.mjs",
-  "ledger-lock.mjs",
-  "advance-progress.mjs",
-  "close-requirement.mjs",
-  "validate-progress.mjs",
-];
-const RUNTIME_DIRECTORIES = [];
-
 function check(status, message, detail = undefined) {
   return { status, message, ...(detail ? { detail } : {}) };
 }
@@ -169,45 +159,6 @@ function checkSuperpowers(projectRoot, homeDir) {
     "fail",
     "Superpowers skill 未安装",
     "请按当前工具安装 Superpowers 插件，或安装平铺的 using-superpowers skill，安装后重新运行体检。",
-  );
-}
-
-function runtimeRoots(projectRoot, homeDir) {
-  return [
-    path.join(homeDir, ".xiaoqi", "runtime"),
-    path.join(projectRoot, "skills", "sprint-manage-xiaoqi", "scripts"),
-  ];
-}
-
-function checkRuntime(projectRoot, homeDir) {
-
-  const missing = [];
-  const root = runtimeRoots(projectRoot, homeDir).find((candidate) => {
-    const filesExist = RUNTIME_FILES.every((name) =>
-      existsSync(path.join(candidate, name)),
-    );
-    const directoriesExist = RUNTIME_DIRECTORIES.every((name) =>
-      existsSync(path.join(candidate, name)),
-    );
-    return filesExist && directoriesExist;
-  });
-
-  if (root) {
-    return check("pass", "小七通用运行时可用", root);
-  }
-
-  for (const candidate of runtimeRoots(projectRoot, homeDir)) {
-    for (const name of RUNTIME_FILES) {
-      if (!existsSync(path.join(candidate, name))) missing.push(name);
-    }
-    for (const name of RUNTIME_DIRECTORIES) {
-      if (!existsSync(path.join(candidate, name))) missing.push(`${name}/`);
-    }
-  }
-  return check(
-    "fail",
-    "缺少小七通用运行时",
-    [...new Set(missing)].join(", "),
   );
 }
 
