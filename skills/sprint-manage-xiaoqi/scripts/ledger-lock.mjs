@@ -102,8 +102,21 @@ export function releaseLedgerLock(filePath, token) {
   rmSync(lockFile);
 }
 
+const LOCK_COMMANDS = new Set(["acquire", "commit", "release"]);
+const LOCK_USAGE =
+  "用法: node ledger-lock.mjs acquire <file> <owner> | commit/release <file> <token>";
+
 function runCli(args) {
   const [command, filePath, value] = args;
+  if (!LOCK_COMMANDS.has(command) || !filePath?.trim() || !value?.trim()) {
+    console.error(LOCK_USAGE);
+    if (LOCK_COMMANDS.has(command) && !value?.trim()) {
+      console.error(
+        `缺少 <${command === "acquire" ? "owner" : "token"}> 参数`,
+      );
+    }
+    return 2;
+  }
   try {
     if (command === "acquire") {
       console.log(JSON.stringify(acquireLedgerLock(filePath, value)));
@@ -118,9 +131,7 @@ function runCli(args) {
       console.log("released");
       return 0;
     }
-    console.error(
-      "用法: node ledger-lock.mjs acquire <file> <owner> | commit/release <file> <token>",
-    );
+    console.error(LOCK_USAGE);
     return 2;
   } catch (error) {
     console.error(error.message);
