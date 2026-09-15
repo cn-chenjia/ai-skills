@@ -98,7 +98,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 | 新建、恢复、查看需求；账本或状态问题 | [state-contract.md](references/state-contract.md) |
 | 开始、继续、更新、验证；普通执行失败 | [step-details.md](references/step-details.md) |
 | `ready` 前用户要求合并分支或推送远程 | [step-details.md](references/step-details.md) |
-| 已到 `ready`；PR、合并、保留、归档、关闭需求或关闭整个迭代 | [closing.md](references/closing.md) |
+| 已到 `ready`；PR、合并、保留、合并后清理、归档、关闭需求或关闭整个迭代 | [closing.md](references/closing.md) |
 | 账本运行时、状态推进或证据校验 | [runtime-contract.md](references/runtime-contract.md) |
 
 参考文件只执行当前动作所需的规则，不拥有会话或流程控制权。它们不得直接跳转到另一份参考；需要新动作时先返回主技能。

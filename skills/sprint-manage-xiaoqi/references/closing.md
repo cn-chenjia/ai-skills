@@ -67,6 +67,24 @@ push 前先 fetch 并对账：`git branch -r --contains <需求 HEAD 提交>` �
 是否已包含本次改动（用户可能已在会话外自行推送）；远端已包含时改走 pull 同步，
 本地领先才推送；禁止不做对账直接 push 导致 rejected 摩擦。
 
+## 合并后清理
+
+`merged` 或 PR 已合并后，清理需求分支与 worktree 属于小七收尾职责的一部分，
+由主技能在 finish 证据落库后组织执行：
+
+1. 清理前先对账：`git worktree list` 与账本仓库条目核对，只清理当前需求登记的
+   branch 和 worktree，不碰其他需求或用户手工创建的对象；归属无法确认的一律保留。
+2. 清理前提醒用户关闭 IDE 中打开的 worktree 文件和相关终端，避免文件句柄占用导致
+   `git worktree remove` 失败；删除失败时记录实际原因并交给用户处理，不强制重试。
+3. 依次移除 worktree（`git worktree remove <worktree>`）并删除本地分支
+   （`git branch -d`）；已推送的远端分支按用户指示处理，不擅自删除。
+4. 清理完成后在账本事件日志记录 `kind: workspace-cleanup` 事件，逐仓库记录
+   branch、worktree 与删除结果；清理事件不改变流程状态与交付状态，
+   `finish.summary` 中是否删除 branch/worktree 的记录以实际清理结果为准。
+5. `pr-open` 未合并或用户选择 `kept` 时保留工作区与分支，不执行清理。
+
+清理被跳过、失败或用户选择保留时，如实记录并返回主技能，不得虚报清理结果。
+
 ## 正式关闭
 
 仅当 archive 和 finish 证据都存在，且最终交付状态为 `pr-open | merged | kept` 时，才由主技能调用 `"<小七技能安装目录>/scripts/close-requirement.mjs"` 校验证据并写入 `closed` 事件。账本位于 `~/.xiaoqi/sprint-manage/<requirement-id>-v<版本号>.yaml`，不维护 session 文件。真实流程和交付状态仍以账本为准，不能只在对话或总结中宣称需求已关闭。已关闭版本发现后续问题时，创建新版本，不重新打开原账本。

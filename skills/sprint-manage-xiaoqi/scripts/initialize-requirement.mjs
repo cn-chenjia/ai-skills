@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -17,9 +18,20 @@ import {
   parseProgressYaml,
   validateProgress,
 } from "./validate-progress.mjs";
-import { getRequirementPath, getRequirementsDir } from "./ledger-paths.mjs";
+import {
+  getLedgerArchiveDir,
+  getRequirementPath,
+  getRequirementsDir,
+} from "./ledger-paths.mjs";
+import {
+  acquireLedgerLock,
+  commitLedgerLock,
+  releaseLedgerLock,
+} from "./ledger-lock.mjs";
 
 const IGNORE_LINES = [];
+const FINAL_DELIVERY_STATES = new Set(["pr-open", "merged", "kept"]);
+const SUCCESS_OUTCOMES = new Set(["passed", "completed", "archived"]);
 
 function hasText(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -31,12 +43,15 @@ function validateRequirementId(requirementId) {
   }
 }
 
-function getLedgerVersions(requirementsDir, requirementId) {
+function scanLedgerVersions(dir, requirementId) {
+  if (!existsSync(dir)) return [];
   const prefix = `${requirementId}-v`;
-  return readdirSync(requirementsDir)
+  return readdirSync(dir)
     .map((name) => {
       const match = name.match(new RegExp(`^${prefix}(\\d+)\\.ya?ml$`));
-      return match ? { version: Number(match[1]), name } : null;
+      return match
+        ? { version: Number(match[1]), name, ledgerPath: path.join(dir, name) }
+        : null;
     })
     .filter(Boolean)
     .sort((a, b) => b.version - a.version);
@@ -140,6 +155,229 @@ function existingLedgerResult(
   };
 }
 
+function assertReopenableSource(previous, requirementId, changeId, owner) {
+  if (
+    previous.编号 !== requirementId ||
+    previous.change_id !== changeId ||
+    previous.协作?.负责人 !== owner
+  ) {
+    throw new Error(`重开账本身份不匹配: ${requirementId}`);
+  }
+  if (previous.流程状态 !== "closed") {
+    throw new Error("只能从已关闭（closed）的需求账本重开新版本");
+  }
+  if (!FINAL_DELIVERY_STATES.has(previous.交付状态)) {
+    throw new Error(
+      "重开账本的交付状态必须是 pr-open/merged/kept 的最终收尾状态",
+    );
+  }
+  const archive = previous.证据索引?.archive;
+  const finish = previous.证据索引?.finish;
+  if (
+    archive?.kind !== "archive" ||
+    archive.exit_code !== 0 ||
+    !SUCCESS_OUTCOMES.has(archive.outcome) ||
+    typeof archive.path !== "string" ||
+    archive.path.trim() === ""
+  ) {
+    throw new Error("重开账本缺少成功的 archive 证据，无法继承");
+  }
+  if (
+    finish?.kind !== "finish" ||
+    finish.exit_code !== 0 ||
+    !SUCCESS_OUTCOMES.has(finish.outcome) ||
+    finish.result !== previous.交付状态
+  ) {
+    throw new Error("重开账本缺少与交付状态一致的 finish 证据，无法继承");
+  }
+}
+
+function reopenedEvidenceIndex(previous) {
+  const source = previous.证据索引 ?? {};
+  return {
+    apply: source.apply ?? null,
+    checks: Array.isArray(source.checks) ? source.checks : [],
+    review: source.review ?? null,
+    openspec_verify: source.openspec_verify ?? null,
+    archive: source.archive ?? null,
+    // finish 置回 pending，等用户按新收尾方式重新记录
+    finish: { outcome: "pending", result: null, summary: null },
+  };
+}
+
+function reopenedLedger(
+  previous,
+  name,
+  version,
+  archivedPath,
+  owner,
+  confirmedBy,
+  now,
+) {
+  const document = {
+    schema_version: 4,
+    document_type: "requirement",
+    编号: previous.编号,
+    版本: version,
+    前序版本: archivedPath,
+    名称: name,
+    change_id: previous.change_id,
+    revision: 1,
+    updated_at: now,
+    updated_by: owner,
+    流程状态: "active",
+    交付状态: "ready",
+    当前意图: "改写收尾方式",
+    推荐动作: "finish",
+    协作: previous.协作,
+    仓库: previous.仓库,
+    依赖需求: previous.依赖需求 ?? [],
+    冲突键: previous.冲突键 ?? [],
+    影响范围: previous.影响范围 ?? [],
+    计划: previous.计划 ?? null,
+    证据索引: reopenedEvidenceIndex(previous),
+    用户决策: [
+      ...(Array.isArray(previous.用户决策) ? previous.用户决策 : []),
+      {
+        kind: "finish-reopen",
+        outcome: "approved",
+        actor: confirmedBy,
+        at: now,
+        previous_result: previous.交付状态,
+      },
+    ],
+    阻塞项: [],
+    事件日志: [
+      {
+        kind: "requirement-reopened",
+        actor: owner,
+        at: now,
+        previous_version: previous.版本 ?? null,
+        previous_ledger: archivedPath,
+        previous_delivery_status: previous.交付状态,
+      },
+    ],
+  };
+  if (previous.OpenSpec快照) document.OpenSpec快照 = previous.OpenSpec快照;
+  if (Array.isArray(previous.任务映射)) document.任务映射 = previous.任务映射;
+  return document;
+}
+
+function archiveSourceLedger(sourcePath, archivedPath, owner, successorName) {
+  const originalSource = readFileSync(sourcePath, "utf8");
+  const lock = acquireLedgerLock(sourcePath, owner);
+  try {
+    const annotated = parseProgressYaml(originalSource);
+    annotated.事件日志 = Array.isArray(annotated.事件日志)
+      ? annotated.事件日志
+      : [];
+    annotated.事件日志.push({
+      kind: "ledger-archived",
+      actor: owner,
+      at: new Date().toISOString(),
+      successor: successorName,
+    });
+    writeFileSync(sourcePath, serializeProgressYaml(annotated), "utf8");
+    commitLedgerLock(sourcePath, lock.token);
+  } catch (error) {
+    writeFileSync(sourcePath, originalSource, "utf8");
+    try {
+      releaseLedgerLock(sourcePath, lock.token);
+    } catch {
+      // 锁已释放时忽略，保持原始错误抛出
+    }
+    throw error;
+  }
+  renameSync(sourcePath, archivedPath);
+}
+
+function reopenRequirement(
+  root,
+  requirementsDir,
+  reopenFrom,
+  requirementId,
+  name,
+  changeId,
+  owner,
+  confirmedBy,
+) {
+  const sourcePath = path.resolve(reopenFrom);
+  if (!existsSync(sourcePath)) {
+    throw new Error(`找不到待重开的需求账本: ${sourcePath}`);
+  }
+  const archiveDir = getLedgerArchiveDir(root);
+  if (path.dirname(sourcePath) === archiveDir) {
+    throw new Error("待重开账本已位于 archive 目录，不能重复重开");
+  }
+  const previous = parseProgressYaml(readFileSync(sourcePath, "utf8"));
+  assertReopenableSource(previous, requirementId, changeId, owner);
+
+  const mainVersions = scanLedgerVersions(requirementsDir, requirementId);
+  // 源账本本身可以位于主目录（即将被归档）；其他未归档同需求版本属于异常状态
+  const otherMainVersions = mainVersions.filter(
+    (entry) => path.resolve(entry.ledgerPath) !== sourcePath,
+  );
+  if (otherMainVersions.length > 0) {
+    throw new Error(
+      `存在未归档的同需求账本版本: ${otherMainVersions[0].ledgerPath}`,
+    );
+  }
+  const archivedVersions = scanLedgerVersions(archiveDir, requirementId);
+  const version =
+    [...mainVersions, ...archivedVersions].reduce(
+      (max, entry) => Math.max(max, entry.version),
+      0,
+    ) + 1;
+  const ledgerPath = getRequirementPath(root, requirementId, undefined, version);
+  if (existsSync(ledgerPath)) {
+    throw new Error(`目标版本账本已存在: ${ledgerPath}`);
+  }
+
+  mkdirSync(archiveDir, { recursive: true });
+  const archivedPath = path.join(archiveDir, path.basename(sourcePath));
+  if (existsSync(archivedPath)) {
+    throw new Error(`归档目标已存在: ${archivedPath}`);
+  }
+
+  // 先构建并校验 v2，再动 v1；避免校验失败留下半重开状态
+  const now = new Date().toISOString();
+  const document = reopenedLedger(
+    previous,
+    name,
+    version,
+    archivedPath,
+    owner,
+    confirmedBy,
+    now,
+  );
+  const issues = validateProgress(document);
+  if (issues.length > 0) {
+    throw new Error(
+      `重开账本校验失败: ${issues[0].code} ${issues[0].message}`,
+    );
+  }
+
+  archiveSourceLedger(sourcePath, archivedPath, owner, path.basename(ledgerPath));
+  try {
+    writeFileSync(ledgerPath, serializeProgressYaml(document), {
+      encoding: "utf8",
+      flag: "wx",
+    });
+  } catch (error) {
+    // v2 写入失败时把 v1 还原回原位，不留半重开状态
+    renameSync(archivedPath, sourcePath);
+    throw error;
+  }
+
+  return {
+    outcome: "reopened",
+    ledger: ledgerPath,
+    archivedLedger: archivedPath,
+    inheritedEvidence: ["apply", "checks", "review", "openspec_verify", "archive"],
+    recommendedNext: "finish",
+  };
+}
+
 export function initializeRequirement(
   projectRoot,
   requirementId,
@@ -147,6 +385,7 @@ export function initializeRequirement(
   changeId,
   owner,
   confirmedBy,
+  options = {},
 ) {
   const root = path.resolve(projectRoot);
   for (const [label, value] of [
@@ -163,17 +402,30 @@ export function initializeRequirement(
   const requirementsDir = getRequirementsDir(root);
   mkdirSync(requirementsDir, { recursive: true });
   ensureIgnoreRules(root);
-  const existingVersions = getLedgerVersions(requirementsDir, requirementId);
+  if (options.reopenFrom) {
+    return reopenRequirement(
+      root,
+      requirementsDir,
+      options.reopenFrom,
+      requirementId,
+      name,
+      changeId,
+      owner,
+      confirmedBy,
+    );
+  }
+  const existingVersions = scanLedgerVersions(requirementsDir, requirementId);
   for (const existingVersion of existingVersions) {
-    const candidatePath = path.join(requirementsDir, existingVersion.name);
-    const candidate = parseProgressYaml(readFileSync(candidatePath, "utf8"));
+    const candidate = parseProgressYaml(
+      readFileSync(existingVersion.ledgerPath, "utf8"),
+    );
     if (
       candidate.change_id === changeId &&
       candidate.协作?.负责人 === owner
     ) {
       return existingLedgerResult(
         root,
-        candidatePath,
+        existingVersion.ledgerPath,
         requirementId,
         changeId,
         owner,
@@ -181,12 +433,15 @@ export function initializeRequirement(
       );
     }
   }
-  const version = existingVersions.length > 0 ? existingVersions[0].version + 1 : 1;
+  // 版本号跨主目录与 archive/ 连续递增，避免归档后新版本回退到 1
+  const allVersions = [
+    ...existingVersions,
+    ...scanLedgerVersions(getLedgerArchiveDir(root), requirementId),
+  ];
+  const version = allVersions.length > 0 ? allVersions[0].version + 1 : 1;
   const ledgerPath = getRequirementPath(root, requirementId, undefined, version);
 
-  const previousVersion = existingVersions[0]
-    ? path.join(requirementsDir, existingVersions[0].name)
-    : null;
+  const previousVersion = allVersions[0]?.ledgerPath ?? null;
   const document = newLedger(
     root,
     requirementId,
@@ -227,14 +482,29 @@ export function initializeRequirement(
 }
 
 function runCli(args) {
-  if (args.length !== 6) {
+  const reopenIndex = args.indexOf("--reopen-from");
+  let reopenFrom = null;
+  let positional = args;
+  if (reopenIndex >= 0) {
+    reopenFrom = args[reopenIndex + 1];
+    if (!reopenFrom) {
+      console.error("--reopen-from 需要指定待重开的已关闭账本路径");
+      return 2;
+    }
+    positional = args.filter(
+      (_, index) => index !== reopenIndex && index !== reopenIndex + 1,
+    );
+  }
+  if (positional.length !== 6) {
     console.error(
-      "用法: node initialize-requirement.mjs <project-root> <requirement-id> <name> <change-id> <owner> <confirmed-by>",
+      "用法: node initialize-requirement.mjs <project-root> <requirement-id> <name> <change-id> <owner> <confirmed-by> [--reopen-from <已关闭账本路径>]",
     );
     return 2;
   }
   try {
-    console.log(JSON.stringify(initializeRequirement(...args)));
+    console.log(
+      JSON.stringify(initializeRequirement(...positional, { reopenFrom })),
+    );
     return 0;
   } catch (error) {
     console.error(error.message);

@@ -20,3 +20,7 @@ export function getRequirementPath(
     `${requirementId}-v${version}.yaml`,
   );
 }
+
+export function getLedgerArchiveDir(projectRoot, homeDir = os.homedir()) {
+  return path.join(getRequirementsDir(projectRoot, homeDir), "archive");
+}

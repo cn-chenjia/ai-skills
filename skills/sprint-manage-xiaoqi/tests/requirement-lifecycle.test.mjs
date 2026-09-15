@@ -18,6 +18,7 @@ const initializeScript = path.join(
   "initialize-requirement.mjs",
 );
 const closeScript = path.join(skillDir, "scripts", "close-requirement.mjs");
+const advanceScript = path.join(skillDir, "scripts", "advance-progress.mjs");
 
 function runScript(script, args, cwd) {
   const homeDir = path.join(cwd, ".test-home");
@@ -27,6 +28,37 @@ function runScript(script, args, cwd) {
     env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir },
   });
 }
+
+// 构造一份已关闭、交付状态 kept、archive/finish 证据齐全的 v1 账本
+async function writeClosedKeptLedger(ledgerPath) {
+  const source = (await readFile(
+    path.join(testDir, "fixtures", "valid-single.yaml"),
+    "utf8",
+  )).replace(/\r\n/g, "\n");
+  const closedSource = source
+    .replace("revision: 1", "revision: 5")
+    .replace("流程状态: active", "流程状态: closed")
+    .replace("交付状态: coding", "交付状态: kept")
+    .replace(
+      "  archive:\n    outcome: pending\n    path: null",
+      '  archive:\n    kind: "archive"\n    command: "openspec archive"\n    exit_code: 0\n    checked_at: "2026-08-20T10:00:00+08:00"\n    outcome: completed\n    path: "openspec/changes/archive/story-1001"',
+    )
+    .replace(
+      "  finish:\n    outcome: pending\n    result: null\n    summary: null",
+      '  finish:\n    kind: "finish"\n    command: "git status"\n    exit_code: 0\n    commit: "abc123"\n    checked_at: "2026-08-20T10:00:00+08:00"\n    outcome: completed\n    result: kept\n    summary: "本地保留"',
+    );
+  await mkdir(path.dirname(ledgerPath), { recursive: true });
+  await writeFile(ledgerPath, closedSource);
+  return closedSource;
+}
+
+const REOPEN_ARGS = [
+  "story-1001",
+  "用户搜索",
+  "story-1001-user-search",
+  "alice",
+  "requester",
+];
 
 test("initializes the first tracked requirement before implementation", async () => {
   const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-init-"));
@@ -309,4 +341,231 @@ test("rejects closing an already closed requirement again", async () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /workflow-closed/);
   assert.equal(await readFile(ledgerPath, "utf8"), closedSource);
+});
+
+test("reopens a closed requirement into an evidence-inheriting next version", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-reopen-"));
+  const requirementsDir = path.join(
+    projectRoot,
+    ".test-home",
+    ".xiaoqi",
+    "sprint-manage",
+  );
+  const v1Path = path.join(requirementsDir, "story-1001-v1.yaml");
+  await writeClosedKeptLedger(v1Path);
+
+  const result = runScript(
+    initializeScript,
+    [projectRoot, ...REOPEN_ARGS, "--reopen-from", v1Path],
+    projectRoot,
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.outcome, "reopened");
+  assert.equal(output.recommendedNext, "finish");
+  const archivedPath = path.join(requirementsDir, "archive", "story-1001-v1.yaml");
+  assert.equal(output.archivedLedger, archivedPath);
+  const v2Path = output.ledger;
+  assert.equal(existsSync(v2Path), true);
+  assert.equal(existsSync(archivedPath), true);
+  assert.equal(existsSync(v1Path), false);
+
+  const v2 = parseProgressYaml(await readFile(v2Path, "utf8"));
+  assert.equal(v2.版本, 2);
+  assert.equal(v2.流程状态, "active");
+  assert.equal(v2.交付状态, "ready");
+  assert.equal(v2.推荐动作, "finish");
+  assert.equal(v2.前序版本, archivedPath);
+  assert.equal(v2.change_id, "story-1001-user-search");
+  assert.equal(v2.证据索引.finish.outcome, "pending");
+  assert.equal(v2.证据索引.finish.result, null);
+  assert.equal(v2.证据索引.archive.outcome, "completed");
+  assert.equal(v2.证据索引.archive.path, "openspec/changes/archive/story-1001");
+  assert.equal(v2.用户决策.at(-1).kind, "finish-reopen");
+  assert.equal(v2.用户决策.at(-1).previous_result, "kept");
+  assert.equal(v2.用户决策.some((decision) => decision.kind === "proposal-confirmation"), true);
+  assert.equal(v2.事件日志.at(-1).kind, "requirement-reopened");
+  assert.equal(v2.事件日志.at(-1).previous_delivery_status, "kept");
+  assert.deepEqual(v2.仓库[0].branch, "feature/story-1001");
+
+  const archived = parseProgressYaml(await readFile(archivedPath, "utf8"));
+  assert.equal(archived.流程状态, "closed");
+  assert.equal(archived.交付状态, "kept");
+  assert.equal(archived.事件日志.at(-1).kind, "ledger-archived");
+  assert.equal(archived.事件日志.at(-1).successor, path.basename(v2Path));
+});
+
+test("reopened requirement records new finish and closes without replaying evidence", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-reopen-close-"));
+  const requirementsDir = path.join(
+    projectRoot,
+    ".test-home",
+    ".xiaoqi",
+    "sprint-manage",
+  );
+  const v1Path = path.join(requirementsDir, "story-1001-v1.yaml");
+  await writeClosedKeptLedger(v1Path);
+  const reopened = runScript(
+    initializeScript,
+    [projectRoot, ...REOPEN_ARGS, "--reopen-from", v1Path],
+    projectRoot,
+  );
+  assert.equal(reopened.status, 0, reopened.stderr);
+  const v2Path = JSON.parse(reopened.stdout).ledger;
+
+  const evidencePath = path.join(projectRoot, "finish-evidence.json");
+  await writeFile(
+    evidencePath,
+    JSON.stringify({
+      kind: "finish",
+      command: "git push origin feature/story-1001",
+      exit_code: 0,
+      commit: "def456",
+      checked_at: "2026-08-21T10:00:00+08:00",
+      summary: "PR 已合并，删除本地与远端分支",
+      result: "merged",
+      outcome: "completed",
+    }),
+  );
+  const advance = runScript(
+    advanceScript,
+    [v2Path, "merged", evidencePath, "requester"],
+    projectRoot,
+  );
+  assert.equal(advance.status, 0, advance.stderr);
+
+  const close = runScript(closeScript, [v2Path, "alice"], projectRoot);
+  assert.equal(close.status, 0, close.stderr);
+  const closed = parseProgressYaml(await readFile(v2Path, "utf8"));
+  assert.equal(closed.流程状态, "closed");
+  assert.equal(closed.交付状态, "merged");
+  assert.equal(closed.证据索引.finish.result, "merged");
+});
+
+test("rejects reopening an unclosed or mismatched ledger", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-reopen-bad-"));
+  const requirementsDir = path.join(
+    projectRoot,
+    ".test-home",
+    ".xiaoqi",
+    "sprint-manage",
+  );
+  const v1Path = path.join(requirementsDir, "story-1001-v1.yaml");
+  await writeClosedKeptLedger(v1Path);
+
+  // 身份不匹配（change_id 不同）
+  const mismatch = runScript(
+    initializeScript,
+    [
+      projectRoot,
+      "story-1001",
+      "用户搜索",
+      "story-1001-other-change",
+      "alice",
+      "requester",
+      "--reopen-from",
+      v1Path,
+    ],
+    projectRoot,
+  );
+  assert.equal(mismatch.status, 1);
+  assert.match(mismatch.stderr, /身份不匹配/);
+  assert.equal(existsSync(v1Path), true);
+
+  // 未关闭（active）账本不能重开
+  const activeSource = (await readFile(
+    path.join(testDir, "fixtures", "valid-single.yaml"),
+    "utf8",
+  )).replace(/\r\n/g, "\n")
+    .replace('编号: "story-1001"', '编号: "story-2002"')
+    .replace('change_id: "story-1001-user-search"', 'change_id: "story-2002-user-search"');
+  const activePath = path.join(requirementsDir, "story-2002-v1.yaml");
+  await mkdir(requirementsDir, { recursive: true });
+  await writeFile(activePath, activeSource);
+  const unclosed = runScript(
+    initializeScript,
+    [
+      projectRoot,
+      "story-2002",
+      "用户搜索",
+      "story-2002-user-search",
+      "alice",
+      "requester",
+      "--reopen-from",
+      activePath,
+    ],
+    projectRoot,
+  );
+  assert.equal(unclosed.status, 1);
+  assert.match(unclosed.stderr, /closed/);
+  assert.equal(existsSync(activePath), true);
+});
+
+test("does not reopen twice from an already archived ledger", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-reopen-twice-"));
+  const requirementsDir = path.join(
+    projectRoot,
+    ".test-home",
+    ".xiaoqi",
+    "sprint-manage",
+  );
+  const v1Path = path.join(requirementsDir, "story-1001-v1.yaml");
+  await writeClosedKeptLedger(v1Path);
+  const first = runScript(
+    initializeScript,
+    [projectRoot, ...REOPEN_ARGS, "--reopen-from", v1Path],
+    projectRoot,
+  );
+  assert.equal(first.status, 0, first.stderr);
+  const archivedPath = path.join(requirementsDir, "archive", "story-1001-v1.yaml");
+
+  const second = runScript(
+    initializeScript,
+    [projectRoot, ...REOPEN_ARGS, "--reopen-from", archivedPath],
+    projectRoot,
+  );
+
+  assert.equal(second.status, 1);
+  assert.match(second.stderr, /archive 目录/);
+  assert.equal(existsSync(archivedPath), true);
+  const v2Path = JSON.parse(first.stdout).ledger;
+  assert.equal(existsSync(v2Path), true);
+});
+
+test("continues version numbering from archived ledgers when initializing again", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "xiaoqi-version-"));
+  const requirementsDir = path.join(
+    projectRoot,
+    ".test-home",
+    ".xiaoqi",
+    "sprint-manage",
+  );
+  const v1Path = path.join(requirementsDir, "story-1001-v1.yaml");
+  await writeClosedKeptLedger(v1Path);
+  const reopened = runScript(
+    initializeScript,
+    [projectRoot, ...REOPEN_ARGS, "--reopen-from", v1Path],
+    projectRoot,
+  );
+  assert.equal(reopened.status, 0, reopened.stderr);
+  const v2Path = JSON.parse(reopened.stdout).ledger;
+
+  // 已归档 v1 + 主目录 v2 时，同需求新版本应从 v3 继续，而不是回退
+  const third = runScript(
+    initializeScript,
+    [
+      projectRoot,
+      "story-1001",
+      "用户搜索",
+      "story-1001-next-change",
+      "alice",
+      "requester",
+    ],
+    projectRoot,
+  );
+
+  assert.equal(third.status, 0, third.stderr);
+  assert.equal(path.basename(JSON.parse(third.stdout).ledger), "story-1001-v3.yaml");
+  assert.equal(existsSync(v2Path), true);
 });

@@ -98,7 +98,7 @@ test("routes every focused reference from the main skill", async () => {
       "references/step-details.md",
     ],
     [
-      "已到 `ready`；PR、合并、保留、归档、关闭需求或关闭整个迭代",
+      "已到 `ready`；PR、合并、保留、合并后清理、归档、关闭需求或关闭整个迭代",
       "references/closing.md",
     ],
     [
@@ -422,4 +422,37 @@ test("routes on-demand environment diagnosis through doctor", async () => {
 
   // 全局运行时目录（~/.xiaoqi/runtime）不再被流程依赖，布局文档不再记载
   assert.doesNotMatch(state, /  runtime\//);
+});
+
+test("documents post-merge workspace cleanup rules", async () => {
+  const closing = await readSkillFile("references/closing.md");
+  const section = closing.match(
+    /## 合并后清理\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(section, "closing.md 应包含「合并后清理」小节");
+
+  assert.match(section, /小七收尾职责/);
+  assert.match(section, /workspace-cleanup/);
+  assert.match(section, /关闭 IDE 中打开的 worktree 文件/);
+  assert.match(section, /句柄占用/);
+  assert.match(section, /不改变流程状态与交付状态/);
+  assert.match(section, /`pr-open` 未合并或用户选择 `kept` 时保留/);
+});
+
+test("documents finish-method reopen through initialize-requirement", async () => {
+  const state = await readSkillFile("references/state-contract.md");
+  const section = state.match(
+    /## 收尾方式变更\s*([\s\S]*?)(?=\n## )/,
+  )?.[1];
+  assert.ok(section, "state-contract.md 应包含「收尾方式变更」小节");
+
+  assert.match(section, /--reopen-from/);
+  assert.match(section, /已关闭（`closed`）/);
+  assert.match(section, /kept` 改为 `merged`/);
+  assert.match(section, /交付状态置为 `ready`/);
+  assert.match(section, /不重放历史证据/);
+  assert.match(section, /ledger-archived/);
+  assert.match(section, /requirement-reopened/);
+  assert.match(section, /sprint-manage\/archive\//);
+  assert.match(state, /archive\/\r?\n\s+<requirement-id>-v<版本号>\.yaml/);
 });

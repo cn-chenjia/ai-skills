@@ -8,10 +8,13 @@
 ~/.xiaoqi/
   sprint-manage/
     <requirement-id>-v<版本号>.yaml
+    archive/
+      <requirement-id>-v<版本号>.yaml
 ```
 
 - 所有项目共用 `~/.xiaoqi/sprint-manage/` 全局账本目录，需求编号必须全局唯一。
 - 每个需求版本使用 `<requirement-id>-v<版本号>.yaml`，账本不随 branch、worktree 或仓库副本移动，也不写入项目仓库。
+- `archive/` 存放被新版本取代的已关闭账本；目录校验只扫描主目录，版本号按主目录与 `archive/` 的最大版本连续递增。
 - 已关闭版本发现后续问题时创建新版本，不重新打开原账本。
 - 不创建、不读取 `session.yaml`；当前需求、多个需求的并行推进和单需求的多个仓库均由全局账本及当前请求明确表达。
 - 账本目录可由运行时统一创建。
@@ -175,6 +178,30 @@ node "<小七技能安装目录>/scripts/initialize-requirement.mjs" \
 ```
 
 脚本将账本写入 `~/.xiaoqi/sprint-manage/story-1001-v1.yaml`，不会创建 session 文件，也不会覆盖已有账本。后续变更创建新的版本文件，不重新打开已关闭版本。没有需求接纳记录、账本或仓库记录时，不得进入 `coding`；没有方案确认记录时，不得进入 `coding`。工作区准备必须先于 OpenSpec artifacts 生成。
+
+## 收尾方式变更
+
+已关闭需求的收尾方式需要变更（典型场景：`kept` 改为 `merged`/`pr-open`）时，使用
+`initialize-requirement.mjs` 的 `--reopen-from` 重开新版本，不手工重建账本、不重放历史证据：
+
+```bash
+node "<小七技能安装目录>/scripts/initialize-requirement.mjs" \
+  "<项目根目录>" story-1001 "订单重构" \
+  story-1001-order-refactor requester requester \
+  --reopen-from "$HOME/.xiaoqi/sprint-manage/story-1001-v1.yaml"
+```
+
+前提与行为：
+
+- 源账本必须是已关闭（`closed`）、交付状态为 `pr-open | merged | kept` 的同编号、
+  同 `change_id`、同负责人版本，且 archive/finish 证据完整；否则拒绝重开。
+- 脚本自动生成下一个版本：继承仓库、协作、用户决策和
+  apply/check/review/openspec-verify/archive 证据，交付状态置为 `ready`，
+  `finish` 置回 `pending` 等待按新收尾方式重录；推荐动作为 `finish`。
+- 原版本补记 `ledger-archived` 留痕事件后移入 `~/.xiaoqi/sprint-manage/archive/`；
+  新版本记录 `requirement-reopened` 事件，`前序版本` 指向归档路径。
+- 重开后按新收尾方式执行 finish：用统一推进入口记录 finish 证据
+  （`ready -> pr-open | merged | kept`），再走正式关闭。
 
 ## 迁移
 

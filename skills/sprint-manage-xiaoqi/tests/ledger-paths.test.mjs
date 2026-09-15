@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  getLedgerArchiveDir,
   getRequirementsDir,
   getRequirementPath,
   getXiaoqiHome,
@@ -20,5 +21,9 @@ test("calculates a stable user ledger location from the project root", () => {
   assert.equal(
     getRequirementPath(projectRoot, "story-1", home),
     path.join(home, ".xiaoqi", "sprint-manage", "story-1-v1.yaml"),
+  );
+  assert.equal(
+    getLedgerArchiveDir(projectRoot, home),
+    path.join(home, ".xiaoqi", "sprint-manage", "archive"),
   );
 });

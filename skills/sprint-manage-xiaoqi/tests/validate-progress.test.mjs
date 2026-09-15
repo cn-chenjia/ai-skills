@@ -23,7 +23,8 @@ const skillDir = path.resolve(testDir, "..");
 const repoRoot = path.resolve(skillDir, "..");
 
 async function fixtureSource(name) {
-  return readFile(path.join(testDir, "fixtures", name), "utf8");
+  // Windows 检出为 CRLF，统一归一化后再做字符串替换与解析
+  return (await readFile(path.join(testDir, "fixtures", name), "utf8")).replace(/\r\n/g, "\n");
 }
 
 async function fixture(name) {
