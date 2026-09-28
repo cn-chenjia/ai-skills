@@ -1,0 +1,114 @@
+# 小七验证后收尾规则
+
+> 本文件只提供当前动作的操作规则，不拥有会话或流程控制权。完成或中断后必须返回 `SKILL.md`，由主技能重新读取真实状态并路由。
+
+## 进入条件
+
+项目验证、已批准的评审和 OpenSpec verify 都满足当前风险要求后，才能将交付状态推进到
+`ready`。到达 `ready` 后停止连续执行，返回主技能，等待用户选择收尾方式。
+
+## 收尾检查顺序
+
+进入收尾前依次确认：
+
+0. tasks 完整性核对：运行 `openspec list` 确认目标 change 显示 ✓ Complete；
+   非 Complete 时先逐项核对 tasks.md 勾选与已交付事实一致，修复后再进入归档；
+   勾选状态不得为凑数而标记，须有对应交付证据。
+0.5 archive 预检：先跑一次 `openspec archive <change> --json`（不带 --yes）。
+   该命令非交互、不归档（任何失败或通过都保持 `archive: null`），按返回分两支：
+   - `archive_validation_failed`（delta 格式错误）：按 fix 提示运行
+     `openspec validate <change> --type change --strict --json` 拿到明细，修复 delta 后重跑预检；
+   - `archive_confirmation_required`（预检通过）：进入带 `--yes` 的正式归档。
+   主规格侧错误（中文标题 outside section、MODIFIED not found、场景超集）预检不覆盖，
+   在 `--yes` 执行阶段暴露；执行失败时原子保护生效（"No files were changed"），
+   按 message 精确定位修复后重跑即可，不产生半归档状态。
+   正式归档成功后，从 JSON 输出取 `archive.path`（归档路径）记入账本 archive 证据。
+1. 项目测试、构建和静态检查通过；
+2. code review 已批准；
+3. OpenSpec verify 已通过；
+4. 多仓库的 branch/worktree 均已登记，且没有分支、工作区或影响范围冲突；
+5. 用户明确选择创建 PR、合并或保留分支。
+
+## 用户选择
+
+用户选择创建 PR、合并或保留分支后，才继续收尾：
+
+- 创建 PR：最终交付状态为 `pr-open`。
+- 本地或远程合并：最终交付状态为 `merged`。
+- 保留分支或工作区：最终交付状态为 `kept`。
+
+`ready` 不是合并结果；`pr-open | merged | kept` 必须记录真实的 finish 结果。
+
+## 同步与归档
+
+需要在 archive 前让主规格提前反映变更、多个 change 需要共享最新规格，或 OpenSpec
+instructions 明确推荐同步时，先执行 OpenSpec sync。简单、独立且即将 archive 的变更可以
+不单独 sync。当前安装的 openspec CLI 若没有 `sync` 子命令，直接执行 archive（archive
+自带规格同步），不要反复尝试不存在的命令。
+
+随后执行 OpenSpec archive，保存真实 archive 路径和成功结果，作为 archive 证据。
+
+archive 失败的常见原因和修复：
+
+- 主规格标题必须是英文 `## Requirements` / `## Purpose`；中文标题（如 `## 需求`、
+  `## 目的`）会导致解析器无法识别需求条目，需先把标题改为英文再重试。
+- delta 中 `## MODIFIED Requirements` 的需求必须在主规格中已存在；主规格没有对应
+  需求时改用 `## ADDED Requirements`。
+- archive 成功后用统一推进入口记录 `kind: "archive"` 证据（`path` 非空、
+  `outcome` 为 `passed`、`completed` 或 `archived`），不要手工编辑账本。
+
+## 分支收尾
+
+OpenSpec archive 成功后，调用 Superpowers 的
+`finishing-a-development-branch` 完成 finish。根据用户选择，把真实 finish 结果记录为
+`pr-open | merged | kept`，并保存成功的 finish 证据。`finish.summary` 至少记录实际 branch、worktree、PR 或 merge 信息，以及是否删除 branch/worktree；选择 `kept` 时还要记录保留对象和后续动作。
+
+push 前先 fetch 并对账：`git branch -r --contains <需求 HEAD 提交>` 确认远端
+是否已包含本次改动（用户可能已在会话外自行推送）；远端已包含时改走 pull 同步，
+本地领先才推送；禁止不做对账直接 push 导致 rejected 摩擦。
+
+## 合并后清理
+
+`merged` 或 PR 已合并后，清理需求分支与 worktree 属于小七收尾职责的一部分，
+由主技能在 finish 证据落库后组织执行：
+
+1. 清理前先对账：`git worktree list` 与账本仓库条目核对，只清理当前需求登记的
+   branch 和 worktree，不碰其他需求或用户手工创建的对象；归属无法确认的一律保留。
+2. 清理前提醒用户关闭 IDE 中打开的 worktree 文件和相关终端，避免文件句柄占用导致
+   `git worktree remove` 失败；删除失败时记录实际原因并交给用户处理，不强制重试。
+3. 依次移除 worktree（`git worktree remove <worktree>`）并删除本地分支
+   （`git branch -d`）；已推送的远端分支按用户指示处理，不擅自删除。
+4. 清理完成后在账本事件日志记录 `kind: workspace-cleanup` 事件，逐仓库记录
+   branch、worktree 与删除结果；清理事件不改变流程状态与交付状态，
+   `finish.summary` 中是否删除 branch/worktree 的记录以实际清理结果为准。
+5. `pr-open` 未合并或用户选择 `kept` 时保留工作区与分支，不执行清理。
+
+清理被跳过、失败或用户选择保留时，如实记录并返回主技能，不得虚报清理结果。
+
+## 正式关闭
+
+仅当 archive 和 finish 证据都存在，且最终交付状态为 `pr-open | merged | kept` 时，才由主技能调用 `"<小七技能安装目录>/scripts/close-requirement.mjs"` 校验证据并写入 `closed` 事件。账本位于 `~/.xiaoqi/sprint-manage/<requirement-id>-v<版本号>.yaml`，不维护 session 文件。真实流程和交付状态仍以账本为准，不能只在对话或总结中宣称需求已关闭。已关闭版本发现后续问题时，创建新版本，不重新打开原账本。
+
+## 关闭整个迭代
+
+用户要求关闭整个迭代时，只由主技能路由到本文件处理：
+
+1. 检查所有需求流程状态是否为 `closed`。
+2. 对未关闭需求列出 OpenSpec 状态、交付状态和阻塞。
+3. 不自动 archive 未完成 change，不伪造 finish 结果。
+4. 用户明确接受风险后，才移动迭代账本到 `sprint-manage/archive/`。
+
+## 失败返回
+
+sync、archive、finish 或正式关闭失败时，保存实际失败和缺失证据，返回 `SKILL.md`。主技能重新
+读取真实状态并决定重试、恢复、阻塞或请求用户确认；不得宣称已经关闭。
+
+## 结果返回
+
+完成或中断当前动作后，必须把以下结果返回主技能，由主技能重新读取真实状态并决定下一动作：
+
+- `outcome`
+- `summary`
+- `evidence`
+- `blockers`
+- `recommended_next`

@@ -1,0 +1,6 @@
+schema_version: 3
+当前需求: "story-v3"
+需求列表:
+  - 编号: "story-v3"
+    流程状态: active
+    交付状态: coding
