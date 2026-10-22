@@ -325,7 +325,7 @@ function prepareWorkspace(ledgerPath, projectRoot, owner, repository, document) 
   const root = path.resolve(projectRoot);
   const ledger = path.resolve(ledgerPath);
   const gitRoot = path.resolve(gitOutput(root, ["rev-parse", "--show-toplevel"]));
-  if (gitRoot !== root) throw new Error(`项目根目录不匹配: ${root}`);
+  if (comparablePath(gitRoot) !== comparablePath(root)) throw new Error(`项目根目录不匹配: ${root}`);
 
   if (document.交付状态 !== "not-started") {
     throw new Error(`只有 not-started 需求可以准备工作区: ${document.交付状态}`);
