@@ -201,7 +201,14 @@ function detectHeadBaseBranch(projectRoot) {
 }
 
 function detectBaseBranch(projectRoot, configured) {
-  // 优先级：项目 .xiaoqi/config.yaml > 账本仓库条目 > 同仓库历史账本众数 > 仓库当前 HEAD 分支 > 请求用户选择
+  // 优先级：账本仓库条目（单需求显式选择）> 项目 .xiaoqi/config.yaml（仓库级默认）> 同仓库历史账本众数 > 仓库当前 HEAD 分支 > 请求用户选择
+  if (configured) {
+    if (!branchExists(projectRoot, configured)) {
+      throw new Error(`基线分支不存在: ${configured}`);
+    }
+    return configured;
+  }
+
   const projectConfig = readProjectConfig(projectRoot);
   if (projectConfig.baseBranch) {
     if (!branchExists(projectRoot, projectConfig.baseBranch)) {
@@ -210,13 +217,6 @@ function detectBaseBranch(projectRoot, configured) {
       );
     }
     return projectConfig.baseBranch;
-  }
-
-  if (configured) {
-    if (!branchExists(projectRoot, configured)) {
-      throw new Error(`基线分支不存在: ${configured}`);
-    }
-    return configured;
   }
 
   const historyCounts = readHistoryBaseBranchCounts(projectRoot, projectRoot);
