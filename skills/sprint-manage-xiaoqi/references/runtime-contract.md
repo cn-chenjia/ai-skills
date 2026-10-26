@@ -7,7 +7,9 @@
 小七运行时只提供全局需求账本、状态推进和证据校验所需的确定性入口：
 
 - `ledger-paths.mjs`：解析 `~/.xiaoqi/sprint-manage/` 全局账本路径，账本文件使用 `<requirement-id>-v<版本号>.yaml`。
-- `initialize-requirement.mjs`：需求接纳后创建需求账本并记录接纳人；方案确认在工作区初始化和 OpenSpec artifacts 生成之后单独记录。带 `--reopen-from <已关闭账本路径>` 时变更收尾方式：生成继承证据的新版本、把原版本归档进 `archive/`，finish 证据按新收尾方式重录。
+- `initialize-requirement.mjs`：需求接纳后创建需求账本并记录接纳人；方案确认在工作区初始化和 OpenSpec artifacts 生成之后单独记录。带 `--reopen-from <已关闭账本路径>` 时变更收尾方式：生成继承证据的新版本、把原版本归档进 `archive/`，finish 证据按新收尾方式重录。带 `--autonomous` 或项目配置 `autonomy` 时建 schema v5 托管账本。
+- `match-requirement.mjs`：托管需求建账前的相关性预检（只读），确定性扫描候选项目并输出证据，语义判定由主技能完成。
+- `record-decision.mjs`：统一记录用户决策到账本（含托管自动回执 `xiaoqi-auto`，须附 reason），不推进交付状态。
 - `prepare-workspace.mjs`：在 OpenSpec artifacts 生成前，为当前需求登记一个或多个仓库的分支和工作区。
 - `advance-progress.mjs`：按证据推进交付状态。
 - `ledger-lock.mjs`：提供全局账本并发写入锁。

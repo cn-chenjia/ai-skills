@@ -59,8 +59,8 @@ CLI 命令；后者用于更新 OpenSpec instruction 文件，不能拿来修改
 
 执行要求：
 
-1. 需求接纳后先建账并准备工作区；OpenSpec explore/propose 只能在登记后的 worktree 中执行。
-2. 方案确认后，用户必须在“立即实施”和“暂停当前需求”中明确选择；立即实施记录 `implementation-start: approved` 后才继续本路径，暂停不记录该决策且保持 `not-started`。用户若只想结束当前对话，无需额外流程选项。
+1. 需求接纳后先建账并准备工作区；OpenSpec explore/propose 只能在登记后的 worktree 中执行。托管需求先完成相关性预检再建账，托管规则由主技能路由。
+2. 方案确认后，用户必须在“立即实施”和“暂停当前需求”中明确选择；立即实施记录 `implementation-start` 后才继续本路径，暂停不记录该决策且保持 `not-started`。托管需求由自动回执承担并自动选择「立即实施」。用户若只想结束当前对话，无需额外流程选项。
 3. OpenSpec proposal/design/specs/tasks 是唯一需求事实。
 4. 每个 task 内部执行失败验证、最小实现、验证通过和整理；关闭 TDD 的任务（`tdd.enabled: false`）必须在任务映射中记录 `tdd.reason` 豁免原因，无原因不得豁免。
 5. 必须为每个仓库创建或复用需求专属分支和 `.worktrees/<需求编号>` worktree；不得将当前工作区登记为 `.`，也不因当前工作区存在未提交修改而切换或阻塞。

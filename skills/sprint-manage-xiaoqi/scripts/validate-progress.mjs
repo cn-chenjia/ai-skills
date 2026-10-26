@@ -6,6 +6,15 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 const WORKFLOW_STATUS_VALUES = new Set(["active", "paused", "blocked", "closed"]);
+const SUPPORTED_SCHEMA_VERSIONS = new Set([4, 5]);
+const AUTONOMY_MODE_VALUES = new Set(["manual", "full"]);
+const AUTO_ACTOR = "xiaoqi-auto";
+// xiaoqi-auto 只允许记录这三类决策：接纳（requirement-intake）必须由真实提出人签署
+const AUTONOMOUS_DECISION_KINDS = new Set([
+  "proposal-confirmation",
+  "implementation-start",
+  "finish-reopen",
+]);
 const DELIVERY_STATUS_VALUES = new Set([
   "not-started",
   "coding",
@@ -529,6 +538,87 @@ export function hasApprovedImplementationStart(document) {
   );
 }
 
+export function isAutonomous(document) {
+  return document?.托管?.mode === "full";
+}
+
+function autonomyIssues(document) {
+  const issues = [];
+  if (!Object.hasOwn(document, "托管")) return issues;
+
+  const issuePath = "托管";
+  if (document.schema_version !== 5) {
+    addIssue(
+      issues,
+      "autonomy-requires-schema-v5",
+      issuePath,
+      "托管字段需要 schema_version 5；请用 initialize-requirement 重新建版本",
+    );
+    return issues;
+  }
+  const autonomy = document.托管;
+  if (!autonomy || typeof autonomy !== "object" || Array.isArray(autonomy)) {
+    addIssue(issues, "invalid-autonomy", issuePath, "托管必须是映射");
+    return issues;
+  }
+  validateEnum(issues, autonomy.mode, AUTONOMY_MODE_VALUES, "invalid-autonomy-mode", `${issuePath}.mode`, "托管模式");
+  if (
+    autonomy.closing !== null &&
+    autonomy.closing !== undefined &&
+    !FINAL_DELIVERY_STATUS_VALUES.has(autonomy.closing)
+  ) {
+    addIssue(
+      issues,
+      "invalid-autonomy-closing",
+      `${issuePath}.closing`,
+      "托管收尾默认值必须是 pr-open/merged/kept",
+    );
+  }
+  if (
+    autonomy.activated_by !== null &&
+    autonomy.activated_by !== undefined &&
+    !hasText(autonomy.activated_by)
+  ) {
+    addIssue(issues, "invalid-autonomy-activated-by", `${issuePath}.activated_by`, "托管激活来源必须是非空字符串");
+  }
+  return issues;
+}
+
+function decisionIssues(document) {
+  const issues = [];
+  const decisions = Array.isArray(document.用户决策) ? document.用户决策 : [];
+  for (const [index, decision] of decisions.entries()) {
+    if (decision?.actor !== AUTO_ACTOR) continue;
+    const issuePath = `用户决策[${index}]`;
+    if (!isAutonomous(document)) {
+      addIssue(
+        issues,
+        "autonomous-decision-not-allowed",
+        `${issuePath}.actor`,
+        "非托管（托管.mode != full）需求不能记录 xiaoqi-auto 决策",
+      );
+      continue;
+    }
+    if (!AUTONOMOUS_DECISION_KINDS.has(decision?.kind)) {
+      addIssue(
+        issues,
+        "invalid-autonomous-decision-kind",
+        `${issuePath}.kind`,
+        `xiaoqi-auto 只能记录 ${[...AUTONOMOUS_DECISION_KINDS].join("/")} 决策`,
+      );
+    }
+    if (!hasText(decision?.reason)) {
+      addIssue(
+        issues,
+        "missing-autonomous-decision-reason",
+        `${issuePath}.reason`,
+        "xiaoqi-auto 决策必须附带推荐理由（reason）",
+      );
+    }
+  }
+  return issues;
+}
+
 export function validateDeliveryTransition(document, fromStatus) {
   const issues = [];
   const repositories = Array.isArray(document.仓库) ? document.仓库 : [];
@@ -682,13 +772,15 @@ export function validateProgress(document) {
 
   findLegacyV2Fields(document, "", issues);
   issues.push(...taskMappingIssues(document));
+  issues.push(...autonomyIssues(document));
+  issues.push(...decisionIssues(document));
 
-  if (document.schema_version !== 4) {
+  if (!SUPPORTED_SCHEMA_VERSIONS.has(document.schema_version)) {
     addIssue(
       issues,
       "unsupported-schema-version",
       "schema_version",
-      "schema_version 必须为数字 4；旧版本需要先拆分迁移",
+      "schema_version 必须为数字 4 或 5；旧版本需要先拆分迁移",
     );
   }
 

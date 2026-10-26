@@ -32,12 +32,18 @@
 ## 数据结构
 
 ```yaml
-schema_version: 4
+# 人工需求：schema_version: 4 且无「托管」字段；托管需求如下（schema v5）
+schema_version: 5
 document_type: requirement
 
 编号: "story-2000"
 名称: "订单重构"
 change_id: "story-2000-order-refactor"
+
+托管:
+  mode: full          # manual | full
+  closing: pr-open     # ready 后默认收尾：pr-open | merged | kept
+  activated_by: trigger-word  # trigger-word | project-config
 
 revision: 3
 updated_at: "2026-08-11T11:00:00+08:00"
@@ -163,6 +169,21 @@ not-started -> coding -> verified -> reviewed -> ready（进入 `coding` 前必�
 ready -> pr-open | merged | kept
 ```
 
+## 用户决策记录
+
+用户决策（requirement-intake、proposal-confirmation、implementation-start、finish-reopen）统一通过
+`record-decision.mjs` 追加，不要手工编辑账本：
+
+```bash
+node "<小七技能安装目录>/scripts/record-decision.mjs" \
+  "$HOME/.xiaoqi/sprint-manage/story-2000-v1.yaml" decision.json requester
+```
+
+decision.json 至少包含 `kind`、`outcome`、`actor`。托管需求的自动回执使用
+`actor: xiaoqi-auto`，仅限 proposal-confirmation / implementation-start / finish-reopen，
+且必须附带 `reason`（推荐理由）。非托管账本出现 `xiaoqi-auto` 决策会被校验拒绝，
+防止人工模式伪造自动决策；托管流程细节由主技能路由。
+
 最低证据要求：`coding` 需要成功的 `apply`；`verified` 需要成功的 `check`；`reviewed` 需要 `result: approved` 的 `review`；`ready` 需要 `result: passed` 的 `openspec-verify`；`pr-open`、`merged`、`kept` 需要对应 `finish`。
 
 所有证据的 `outcome` 成功值只能是 `passed`、`completed` 或 `archived`。`finish.result` 必须等于目标交付状态，`archive.path` 必须非空。
@@ -176,6 +197,9 @@ node "<小七技能安装目录>/scripts/initialize-requirement.mjs" \
   "<项目根目录>" story-1001 "订单重构" \
   story-1001-order-refactor requester requester
 ```
+
+托管需求加 `--autonomous`（或项目 `.xiaoqi/config.yaml` 配置 `autonomy` 默认激活），
+账本升级为 schema v5 并带 `托管` 字段。
 
 脚本将账本写入 `~/.xiaoqi/sprint-manage/story-1001-v1.yaml`，不会创建 session 文件，也不会覆盖已有账本。后续变更创建新的版本文件，不重新打开已关闭版本。没有需求接纳记录、账本或仓库记录时，不得进入 `coding`；没有方案确认记录时，不得进入 `coding`。工作区准备必须先于 OpenSpec artifacts 生成。
 
