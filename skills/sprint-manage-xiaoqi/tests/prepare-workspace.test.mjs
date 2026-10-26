@@ -653,7 +653,7 @@ test("falls back to the current HEAD branch when no history ledger matches", asy
   assert.equal(ledger.仓库[0].baseBranch, "develop");
 });
 
-test("prefers the project config base branch over the ledger repository entry", async () => {
+test("prefers the ledger repository entry over the project config base branch", async () => {
   const projectRoot = await createProject();
   git(projectRoot, "branch", "develop");
   const ledgerPath = await writeLedger(projectRoot, "story-config-precedence");
@@ -665,8 +665,29 @@ test("prefers the project config base branch over the ledger repository entry", 
 
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout);
-  assert.equal(output.baseBranch, "develop");
+  // 账本条目的单需求显式选择（main）压过项目配置的仓库级默认（develop）
+  assert.equal(output.baseBranch, "main");
   assert.equal(git(output.worktree, "branch", "--show-current"), "feature/story-config-precedence");
+  const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
+  assert.equal(ledger.仓库[0].baseBranch, "main");
+});
+
+test("falls back to the project config base branch when the entry is unset", async () => {
+  const projectRoot = await createProject();
+  git(projectRoot, "branch", "develop");
+  const ledgerPath = await writeLedger(projectRoot, "story-config-fallback");
+  const source = await readFile(ledgerPath, "utf8");
+  await writeFile(ledgerPath, source.replace('    baseBranch: "main"', "    baseBranch: null"));
+  await mkdir(path.join(projectRoot, ".xiaoqi"), { recursive: true });
+  await writeFile(path.join(projectRoot, ".xiaoqi", "config.yaml"), 'baseBranch: "develop"\n');
+  git(projectRoot, "commit", "--allow-empty", "-m", "add project config");
+
+  const result = prepare(ledgerPath, projectRoot);
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.baseBranch, "develop");
+  assert.equal(git(output.worktree, "branch", "--show-current"), "feature/story-config-fallback");
   const ledger = parseProgressYaml(await readFile(ledgerPath, "utf8"));
   assert.equal(ledger.仓库[0].baseBranch, "develop");
 });

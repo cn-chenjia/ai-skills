@@ -28,6 +28,7 @@ import {
   commitLedgerLock,
   releaseLedgerLock,
 } from "./ledger-lock.mjs";
+import { readProjectConfig } from "./prepare-workspace.mjs";
 
 const IGNORE_LINES = [];
 const FINAL_DELIVERY_STATES = new Set(["pr-open", "merged", "kept"]);
@@ -67,10 +68,22 @@ function ensureIgnoreRules(projectRoot) {
   writeFileSync(ignorePath, `${source}${prefix}${missing.join("\n")}\n`, "utf8");
 }
 
-function newLedger(projectRoot, requirementId, name, changeId, owner, confirmedBy, version, previousVersion = null) {
+function resolveAutonomy(projectRoot, options = {}) {
+  // 托管激活优先级：需求级触发词（--autonomous） > 项目配置 autonomy > 默认人工
+  const config = readProjectConfig(projectRoot).autonomy ?? {};
+  const closing = config.closing ?? "pr-open";
+  if (options.autonomous === true) {
+    return { mode: "full", closing, activated_by: "trigger-word" };
+  }
+  if (config.mode === "full") {
+    return { mode: "full", closing, activated_by: "project-config" };
+  }
+  return null;
+}
+
+function newLedger(projectRoot, requirementId, name, changeId, owner, confirmedBy, version, previousVersion = null, autonomy = null) {
   const now = new Date().toISOString();
-  return {
-    schema_version: 4,
+  const document = {
     document_type: "requirement",
     编号: requirementId,
     版本: version,
@@ -126,6 +139,21 @@ function newLedger(projectRoot, requirementId, name, changeId, owner, confirmedB
       },
     ],
   };
+  // 托管需求使用 schema v5 并登记托管配置；人工需求保持 v4 兼容
+  if (autonomy) {
+    document.schema_version = 5;
+    document.托管 = autonomy;
+    document.事件日志.push({
+      kind: "autonomy-activated",
+      actor: owner,
+      at: now,
+      source: autonomy.activated_by,
+      closing: autonomy.closing,
+    });
+  } else {
+    document.schema_version = 4;
+  }
+  return document;
 }
 
 function assertExistingMatches(document, requirementId, changeId, owner) {
@@ -260,6 +288,13 @@ function reopenedLedger(
   };
   if (previous.OpenSpec快照) document.OpenSpec快照 = previous.OpenSpec快照;
   if (Array.isArray(previous.任务映射)) document.任务映射 = previous.任务映射;
+  // 托管配置随重开继承，保持同一需求的自动化策略一致
+  if (previous.托管) {
+    document.schema_version = 5;
+    document.托管 = previous.托管;
+  } else {
+    document.schema_version = 4;
+  }
   return document;
 }
 
@@ -442,6 +477,7 @@ export function initializeRequirement(
   const ledgerPath = getRequirementPath(root, requirementId, undefined, version);
 
   const previousVersion = allVersions[0]?.ledgerPath ?? null;
+  const autonomy = resolveAutonomy(root, options);
   const document = newLedger(
     root,
     requirementId,
@@ -451,6 +487,7 @@ export function initializeRequirement(
     confirmedBy,
     version,
     previousVersion,
+    autonomy,
   );
   const issues = validateProgress(document);
   if (issues.length > 0) {
@@ -482,28 +519,35 @@ export function initializeRequirement(
 }
 
 function runCli(args) {
-  const reopenIndex = args.indexOf("--reopen-from");
+  const flagSet = new Set(["--autonomous"]);
+  const flags = new Set(args.filter((arg) => flagSet.has(arg)));
+  let positional = args.filter((arg) => !flagSet.has(arg));
+  const reopenIndex = positional.indexOf("--reopen-from");
   let reopenFrom = null;
-  let positional = args;
   if (reopenIndex >= 0) {
-    reopenFrom = args[reopenIndex + 1];
+    reopenFrom = positional[reopenIndex + 1];
     if (!reopenFrom) {
       console.error("--reopen-from 需要指定待重开的已关闭账本路径");
       return 2;
     }
-    positional = args.filter(
+    positional = positional.filter(
       (_, index) => index !== reopenIndex && index !== reopenIndex + 1,
     );
   }
   if (positional.length !== 6) {
     console.error(
-      "用法: node initialize-requirement.mjs <project-root> <requirement-id> <name> <change-id> <owner> <confirmed-by> [--reopen-from <已关闭账本路径>]",
+      "用法: node initialize-requirement.mjs <project-root> <requirement-id> <name> <change-id> <owner> <confirmed-by> [--autonomous] [--reopen-from <已关闭账本路径>]",
     );
     return 2;
   }
   try {
     console.log(
-      JSON.stringify(initializeRequirement(...positional, { reopenFrom })),
+      JSON.stringify(
+        initializeRequirement(...positional, {
+          reopenFrom,
+          autonomous: flags.has("--autonomous"),
+        }),
+      ),
     );
     return 0;
   } catch (error) {

@@ -54,6 +54,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 - 用户要求查看、创建、推进、暂停、恢复、诊断或关闭研发流程。
 - 用户询问已追踪需求或迭代的下一动作。
 - 用户正在继续 `~/.xiaoqi/` 中已有的需求流程。
+- 用户提交需求时明确要求「托管」或「自动完成」（托管模式，见 autonomous.md）。
 
 普通需求分析、提案讨论、Bug 修复、代码评审或单纯代码实现，不因出现“需求”“任务”“修复”等词自动触发。
 
@@ -72,14 +73,15 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
    （Node、OpenSpec CLI、账本目录、技能安装、基准分支）；
    普通续接消息不运行环境检查。
 
-没有账本时，只能先完成需求澄清和方案确认。proposal 未获用户确认前，不得初始化账本。
+没有账本时，只能先完成需求澄清和方案确认。proposal 未获用户确认前，不得初始化账本。**托管需求例外**：确认由自动回执承担时仍须先做相关性预检，与所有候选项目无关则不建账直接中断（见 [autonomous.md](references/autonomous.md)）。
 
-确认后必须先初始化账本并记录用户决策。随后必须由用户明确选择：
+确认后必须先初始化账本并记录用户决策；用户决策统一通过
+`record-decision.mjs` 记录（托管模式的自动回执 `actor: xiaoqi-auto` 必须附带 reason）。随后必须由用户明确选择：
 
 1. **确认并立即实施当前需求**：分支和 worktree 已提前准备，记录 `implementation-start: approved`，在已登记的 worktree 中进入 `apply`。
 2. **确认并暂停当前需求**：记录方案确认和待续动作，保持 `not-started`，不记录 `implementation-start`，不进入 `apply`。
 
-用户如果只想结束当前对话，无需额外选择；需求是否保留为可恢复流程由“确认并暂停”决定。
+用户如果只想结束当前对话，无需额外选择；需求是否保留为可恢复流程由“确认并暂停”决定。托管模式下这两个确认点由自动回执承担（`actor: xiaoqi-auto` + reason），自动选择「立即实施」。
 
 没有账本时不得进入 `apply`、验证、评审、归档或 `finish`。
 
@@ -96,6 +98,7 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 | 当前情况 | 读取 |
 | --- | --- |
 | 新建、恢复、查看需求；账本或状态问题 | [state-contract.md](references/state-contract.md) |
+| 托管/自动完成需求；自动回执、相关性预检、托管中断 | [autonomous.md](references/autonomous.md) |
 | 开始、继续、更新、验证；普通执行失败 | [step-details.md](references/step-details.md) |
 | `ready` 前用户要求合并分支或推送远程 | [step-details.md](references/step-details.md) |
 | 已到 `ready`；PR、合并、保留、合并后清理、归档、关闭需求或关闭整个迭代 | [closing.md](references/closing.md) |
@@ -161,5 +164,6 @@ description: "Use when the user explicitly invokes 小七, asks to track, advanc
 
 - [state-contract.md](references/state-contract.md)：账本、状态、证据、锁、版本和迁移。
 - [step-details.md](references/step-details.md)：动作选择、连续执行、验证和失败恢复。
+- [autonomous.md](references/autonomous.md)：托管模式：激活、相关性预检、门禁矩阵、自动回执和托管中断。
 - [closing.md](references/closing.md)：`ready` 后的用户选择、同步、归档、收尾和关闭。
 - [runtime-contract.md](references/runtime-contract.md)：运行时、环境检查和运行时边界。

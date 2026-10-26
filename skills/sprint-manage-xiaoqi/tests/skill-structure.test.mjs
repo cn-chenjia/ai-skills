@@ -13,6 +13,7 @@ const referenceNames = [
   "step-details.md",
   "closing.md",
   "runtime-contract.md",
+  "autonomous.md",
 ];
 const returnFields = [
   "outcome",
@@ -90,6 +91,10 @@ test("routes every focused reference from the main skill", async () => {
       "references/state-contract.md",
     ],
     [
+      "托管/自动完成需求；自动回执、相关性预检、托管中断",
+      "references/autonomous.md",
+    ],
+    [
       "开始、继续、更新、验证；普通执行失败",
       "references/step-details.md",
     ],
@@ -112,7 +117,7 @@ test("routes every focused reference from the main skill", async () => {
     /^\| (.*?) \| \[[^\]]+\]\(([^)]+)\) \|$/gm,
   )].map((match) => [match[1], match[2]]);
   assert.deepEqual(routes, expectedRoutes);
-  assert.equal(routes.length, 5);
+  assert.equal(routes.length, 6);
 });
 
 test("requires every reference to return control to the main skill", async () => {
